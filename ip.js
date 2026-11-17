@@ -26,6 +26,13 @@ function atualizarEnv() {
     }
 
     let envContent = fs.readFileSync(envPath, 'utf8');
+
+    const publicUrlLine = envContent.match(/^DASHBOARD_PUBLIC_URL=(.*)$/m)?.[1]?.trim();
+    if (publicUrlLine?.startsWith('https://')) {
+        console.log(`[ip.js] URL pública HTTPS preservada: ${publicUrlLine}`);
+        return;
+    }
+
     const novaUrl = `DASHBOARD_PUBLIC_URL=http://${ipAtual}:${porta}/painel`;
 
     // Verifica se a linha DASHBOARD_PUBLIC_URL já existe no .env

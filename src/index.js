@@ -9,6 +9,7 @@ import { publicarPainelTickets } from './features/tickets.js';
 import { processarMensagemTicketOllama } from './features/ticketAiManager.js';
 import { registrarEventosInteracao } from './events/interactions.js'; // 👈 Importação correta da função de interações
 import './features/community.js';
+import './events/ready.js';
 import { iniciarMonitoramentoVoice } from './features/voiceMonitor.js';
 
 iniciarMonitoramentoVoice(client);
