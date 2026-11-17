@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { saveMercadoPagoSettings } from '../services/mercadoPagoSettings.js';
@@ -7,18 +7,76 @@ import { saveMercadoPagoSettings } from '../services/mercadoPagoSettings.js';
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const TUNNEL_URL_PATTERN = /https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/;
 const STARTUP_TUNNEL_WAIT_MS = 12_000;
+const UPDATE_CHECK_INTERVAL_MS = Math.max(30_000, Number(process.env.GIT_UPDATE_CHECK_MS) || 60_000);
 
 let bot = null;
 let tunnel = null;
 let botRestartTimer = null;
 let tunnelRestartTimer = null;
+let updateCheckTimer = null;
 let botRestartCount = 0;
 let tunnelRestartCount = 0;
 let stopping = false;
+let restartingBotForUpdate = false;
 let restartingBotForTunnel = false;
 let tunnelUrlReady;
 const firstTunnelUrl = new Promise(resolve => { tunnelUrlReady = resolve; });
 let hasTunnelUrl = false;
+
+function runGit(args) {
+    return execFileSync('git', args, {
+        cwd: PROJECT_ROOT,
+        encoding: 'utf8',
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe']
+    }).trim();
+}
+
+async function checkForUpdates() {
+    if (stopping || !bot) return;
+
+    try {
+        runGit(['fetch', '--prune', 'origin']);
+        const branch = runGit(['branch', '--show-current']);
+        if (!branch) return;
+
+        const upstream = runGit(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
+        const behind = Number(runGit(['rev-list', '--count', `HEAD..${upstream}`])) || 0;
+        if (behind <= 0) return;
+
+        const previousHead = runGit(['rev-parse', 'HEAD']);
+        console.log(`[supervisor] Atualização encontrada (${behind} commit${behind === 1 ? '' : 's'}). Aplicando pull…`);
+        runGit(['pull', '--ff-only', 'origin', branch]);
+
+        const dependencyFilesChanged = runGit([
+            'diff', '--name-only', previousHead, 'HEAD', '--', 'package.json', 'package-lock.json'
+        ]);
+
+        if (dependencyFilesChanged) {
+            console.log('[supervisor] Dependências alteradas. Executando npm install…');
+            const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+            execFileSync(npmCommand, ['install'], {
+                cwd: PROJECT_ROOT,
+                stdio: 'inherit',
+                windowsHide: true
+            });
+        }
+
+        const newHead = runGit(['rev-parse', '--short', 'HEAD']);
+        console.log(`[supervisor] Atualização aplicada (${newHead}). Reiniciando o bot…`);
+        restartingBotForUpdate = true;
+        bot.kill('SIGTERM');
+    } catch (error) {
+        console.error('[supervisor] Falha ao verificar/aplicar atualização:', error.message);
+    }
+}
+
+function startUpdateMonitor() {
+    if (updateCheckTimer || stopping) return;
+    console.log(`[supervisor] Atualizações automáticas ativadas (verificação a cada ${UPDATE_CHECK_INTERVAL_MS / 1000}s).`);
+    updateCheckTimer = setInterval(checkForUpdates, UPDATE_CHECK_INTERVAL_MS);
+    updateCheckTimer.unref?.();
+}
 
 function retryDelay(count) {
     return Math.min(1000 * (2 ** Math.max(0, count - 1)), 30_000);
@@ -42,6 +100,12 @@ function startBot() {
     bot.on('close', (code, signal) => {
         bot = null;
         if (stopping) return;
+
+        if (restartingBotForUpdate) {
+            restartingBotForUpdate = false;
+            startBot();
+            return;
+        }
 
         if (restartingBotForTunnel) {
             restartingBotForTunnel = false;
@@ -128,6 +192,7 @@ function stop(signal) {
     stopping = true;
     if (botRestartTimer) clearTimeout(botRestartTimer);
     if (tunnelRestartTimer) clearTimeout(tunnelRestartTimer);
+    if (updateCheckTimer) clearInterval(updateCheckTimer);
 
     console.log('\n[supervisor] Encerrando bot e túnel…');
     for (const child of [bot, tunnel]) {
@@ -153,6 +218,7 @@ async function main() {
     }
 
     startBot();
+    startUpdateMonitor();
 }
 
 main().catch(error => {
