@@ -30,17 +30,16 @@ timeout /t 3 /nobreak >nul
 
 :LOOP
 echo.
-echo [4/4] A arrancar o Bot do Discord (Modo Auto-Restart Ativo)...
+echo [4/4] A arrancar o supervisor do Discord...
 echo =====================================================================
-echo   MONITORAMENTO ATIVO: Qualquer alteracao salva em arquivos .js
-echo   reiniciara o bot automaticamente nesta janela!
+echo   MODO ATIVO: bot, painel externo, API, webhook e atualizacoes Git
 echo =====================================================================
 echo.
 
-:: Monitora a pasta raiz e todas as subpastas
-node --watch index.js
+:: Supervisor cria o tunel Cloudflare, inicia o bot e verifica atualizacoes
+npm.cmd start
 
 echo.
-echo [AVISO] O processo do bot foi encerrado ou reiniciado. A relancar em 3 segundos...
+echo [AVISO] O supervisor foi encerrado. A relancar em 3 segundos...
 timeout /t 3 /nobreak >nul
 goto LOOP
