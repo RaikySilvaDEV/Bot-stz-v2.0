@@ -1,0 +1,13 @@
+.env
+node_modules/
+## Arquivos legados: estado migrado para /data
+/wallpaper_state.json
+/mod_estoque_state.json
+/tickets_notificados.json
+/anuncios_fivem.json
+/data/*.json
+/data/*.tmp
+/data/transcripts/
+bot-runtime.log
+bot-runtime-error.log
+.mp-integrate-progress.md
