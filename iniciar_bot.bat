@@ -1,6 +1,5 @@
 @echo off
 title Community For Goats - Auto-Update Bot
-color 0C
 
 :: Garante que o terminal abre na pasta exata do bot (essencial para o arranque do Windows)
 cd /d "%~dp0"
