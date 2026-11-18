@@ -86,7 +86,7 @@ function startBot() {
     if (stopping || bot) return;
 
     console.log('[supervisor] Iniciando o bot…');
-    bot = spawn(process.execPath, ['index.js'], {
+    bot = spawn(process.execPath, ['--watch', '--watch-path=src', 'index.js'], {
         cwd: PROJECT_ROOT,
         env: process.env,
         stdio: 'inherit',
