@@ -2,6 +2,7 @@ import { Events } from 'discord.js';
 import { tratarComandoIa, tratarBotoesIa } from '../features/ia.js';
 import { tratarInteracaoTickets } from '../features/tickets.js';
 import { tratarInteracaoCompras } from '../features/commerce.js';
+import { tratarInteracaoDashboard } from '../features/dashboard.js';
 import crypto from 'crypto';
 
 export function registrarEventosInteracao(client) {
@@ -16,6 +17,7 @@ export function registrarEventosInteracao(client) {
 
             // 3. Trata as compras e o menu de seleção da vitrine da loja
             if (await tratarInteracaoCompras(interaction)) return;
+            if (await tratarInteracaoDashboard(interaction)) return;
 
             // 4. Trata o Menu Suspenso interativo do Painel de Tokens
             if (interaction.isStringSelectMenu() && interaction.customId === 'menu_gerir_tokens') {

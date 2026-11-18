@@ -12,6 +12,9 @@ export function getSlashCommands() {
             .setName('ping')
             .setDescription('Mostra a latência do bot.'),
         new SlashCommandBuilder()
+            .setName('painel')
+            .setDescription('Abre o painel administrativo privado do bot.'),
+        new SlashCommandBuilder()
             .setName('gerartoken')
             .setDescription('Gera um token único de acesso de 30 dias vinculado ao HWID.'),
         new SlashCommandBuilder()
