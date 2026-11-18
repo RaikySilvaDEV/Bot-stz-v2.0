@@ -27,18 +27,16 @@ if "%errorlevel%"=="0" (
 echo [3/4] A aguardar a estabilizacao do motor de IA (3 segundos)...
 timeout /t 3 /nobreak >nul
 
-:LOOP
 echo.
-echo [4/4] A arrancar o supervisor do Discord...
+echo [4/4] A arrancar o supervisor do Discord e o tunel do painel...
 echo =====================================================================
 echo   MODO ATIVO: bot, painel externo, API, webhook e atualizacoes Git
 echo =====================================================================
 echo.
 
-:: Executa o bot utilizando o nodemon diretamente para reiniciar ao salvar qualquer alteracao nos ficheiros .js
-npx nodemon --watch src src/index.js
+:: O supervisor inicia o tunel Cloudflare e reinicia o bot quando necessario.
+call npm start
 
 echo.
-echo [AVISO] O processo foi encerrado. A relancar em 3 segundos...
-timeout /t 3 /nobreak >nul
-goto LOOP
+echo [AVISO] O supervisor foi encerrado.
+pause
