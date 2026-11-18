@@ -1,7 +1,8 @@
 import { client } from '../client.js';
+import { EmbedBuilder } from 'discord.js';
 import { iniciarVarreduraTicketsOrfaos } from '../features/tickets.js';
 import { configurarCanalVerificacao, removerPainelParceriaAntigo } from '../features/community.js';
-import { iniciarAgendadorRelogio, verificarEnviosPendentesAoLigar, removerAnuncioParceriaAntigo, iniciarAvisoCasoDeFalhaRecorrente, iniciarDivulgacaoAutomaticaVendas } from '../features/automation.js';
+import { iniciarAgendadorRelogio, verificarEnviosPendentesAoLigar, removerAnuncioParceriaAntigo, iniciarAvisoCasoDeFalhaRecorrente, iniciarDivulgacaoAutomaticaVendas, enviarPainelAvisosInicio, enviarPainelBoosters } from '../features/automation.js';
 import { registrarComandos } from '../commands/deploy.js';
 import { removerAnuncioFiveMAntigo } from '../features/fivemAnnouncements.js';
 import { iniciarApiAnunciosFiveM } from '../api/server.js';
@@ -13,6 +14,7 @@ import { criarVitrineLoja } from '../features/commerce.js';
 import { GUILD_ID } from '../config/constants.js';
 import { configurarCanalArmadilha, iniciarSistemaArmadilha } from '../features/trap.js';
 import { iniciarMonitoramentoVoice } from '../features/voiceMonitor.js';
+import { publicarPainelTokens } from '../features/tokenPanel.js';
 
 iniciarMonitoramentoVoice(client);
 
@@ -52,11 +54,56 @@ client.once('clientReady', async () => {
     const guild = client.guilds.cache.get(GUILD_ID);
 
     if (guild) {
+        // 1. Limpa e publica a vitrine de compras online
         await executarEtapa('canal compras online', async () => {
             const canalComprasId = '1552152094411329546';
             const canal = await limparMensagensAntigasDoBot(guild, canalComprasId);
             if (canal) {
                 await canal.send(criarVitrineLoja());
+            }
+        });
+
+        // 2. Limpa e publica o painel de pagamentos com a tarja vermelha
+        await executarEtapa('canal pagamentos', async () => {
+            const canalPagamentosId = '1567759689289171055';
+            const canal = await limparMensagensAntigasDoBot(guild, canalPagamentosId);
+            if (canal) {
+                const embedPagamentos = new EmbedBuilder()
+                    .setColor(0xFF0000)
+                    .setTitle('💠 • FORMAS DE PAGAMENTO • COMMUNITY FOR GOATS')
+                    .setDescription(
+                        'Para garantir agilidade e segurança nas suas compras, informamos que o nosso ' +
+                        'método oficial de pagamento é exclusivamente via **PIX**.\n\n' +
+                        '⚡ **Liberação Automática:**\n' +
+                        '• Pagamentos aprovados via Mercado Pago liberam o seu cargo na hora!\n' +
+                        '• Basta escolher o produto desejado em <#1552152094411329546> e escanear o QR ' +
+                        'Code ou usar o Pix Copia e Cola.\n\n' +
+                        '> 🔒 *Caso tenha qualquer dúvida ou precise de ajuda com um comprovante, ' +
+                        'abra um atendimento em <#1547234961528979476>.*'
+                    )
+                    .setFooter({ text: 'Community For Goats • Pagamento Seguro e Automatizado' });
+
+                await canal.send({ embeds: [embedPagamentos] });
+            }
+        });
+
+        // 3. Limpa e envia o painel de avisos gerais de acesso premium no arranque
+        await executarEtapa('painel de avisos gerais', async () => {
+            await enviarPainelAvisosInicio(guild);
+        });
+
+        // 4. Limpa e envia o painel de boosters no canal correto
+        await executarEtapa('painel boosters', async () => {
+            await enviarPainelBoosters(guild);
+        });
+
+        // 5. Limpa e publica o painel de gestão de tokens no canal correto
+        await executarEtapa('painel de tokens', async () => {
+            const canalTokensId = '1567697086944649336';
+            const canal = await limparMensagensAntigasDoBot(guild, canalTokensId);
+            if (canal) {
+                await publicarPainelTokens(canal);
+                console.log('[tokens] Painel de tokens publicado com sucesso no canal!');
             }
         });
     }

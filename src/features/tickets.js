@@ -4,11 +4,12 @@ import { CARGO_STAFF_SUPORTE_ID } from '../config/constants.js';
 import { addNotifiedTicketId, getNotifiedTicketIds, removeNotifiedTicketId } from '../repositories/stateRepository.js';
 import { logAction } from '../services/audit.js';
 import { archiveAndCloseTicket } from '../services/ticketClosure.js';
-import { gerarRespostaOllama } from './ticketAiManager.js';
+import { requisitarOllamaApi } from './ia.js';
 import path from 'node:path';
 import fs from 'node:fs';
 
 const SUPORTE_CATEGORY_ID = '1570561179892584548';
+const CARGO_PERMITIDO_FECHAR = '1535261471641042964';
 const inactivityTimers = new Map();
 
 client.on('channelDelete', channel => {
@@ -124,6 +125,41 @@ export async function publicarPainelTickets(channel) {
 }
 
 export async function tratarInteracaoTickets(interaction) {
+    // 1. Tratamento do botão de fechar ticket
+    if (interaction.isButton() && interaction.customId === 'fechar_ticket') {
+        if (!interaction.deferred && !interaction.replied) {
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
+        }
+
+        const member = interaction.member;
+        const temPermissao = 
+            member.roles.cache.has(CARGO_PERMITIDO_FECHAR) || 
+            member.roles.cache.has(CARGO_STAFF_SUPORTE_ID) || 
+            member.permissions.has(PermissionFlagsBits.Administrator);
+
+        if (!temPermissao) {
+            await interaction.editReply({
+                content: `❌ Apenas membros com o cargo autorizado (<@&${CARGO_PERMITIDO_FECHAR}>) podem fechar este ticket!`
+            });
+            return true;
+        }
+
+        await interaction.editReply({
+            content: '🔒 Fechando canal de atendimento...'
+        });
+
+        setTimeout(async () => {
+            try {
+                await archiveAndCloseTicket(interaction.guild, interaction.channel, interaction.user.id, 'Fechado manualmente por membro autorizado.');
+            } catch (e) {
+                await interaction.channel?.delete().catch(() => {});
+            }
+        }, 1500);
+
+        return true;
+    }
+
+    // 2. Tratamento da abertura de ticket via menu de seleção
     if (!interaction.isStringSelectMenu() || interaction.customId !== 'abrir_ticket_select') return false;
 
     try {
@@ -155,7 +191,8 @@ export async function tratarInteracaoTickets(interaction) {
                 { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
                 { id: user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
                 { id: client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-                { id: CARGO_STAFF_SUPORTE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] }
+                { id: CARGO_STAFF_SUPORTE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
+                { id: CARGO_PERMITIDO_FECHAR, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] }
             ]
         });
 
@@ -180,12 +217,11 @@ export async function tratarInteracaoTickets(interaction) {
             saudacao = 'Boa noite';
         }
 
-        // Garante a menção limpa e correta usando <@user.id>
         let textoInicial = `👋 Olá <@${user.id}>! ${saudacao}! No que posso ajudar?`;
         
         try {
             await ticketChannel.sendTyping();
-            const respostaIa = await gerarRespostaOllama([
+            const respostaIa = await requisitarOllamaApi([
                 {
                     role: 'system',
                     content: `Você é o assistente virtual da Community For Goats・🏆. Um novo ticket acabou de ser aberto por <@${user.id}> com o motivo "${valor}". Cumprimente o usuário chamando-o obrigatoriamente por <@${user.id}> dizendo exatamente "${saudacao}!" e logo em seguida adicione a frase: "No que posso ajudar?". Seja prestativo e lembre que temos mods, FiveM, Valorant e produtos da loja.`

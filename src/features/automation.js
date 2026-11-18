@@ -1,9 +1,14 @@
 ﻿import { client } from '../client.js';
-import { EmbedBuilder } from 'discord.js';
+import { EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { GUILD_ID } from '../config/constants.js';
+import path from 'node:path';
+import fs from 'node:fs';
 
 const CANAL_DIVULGACAO_ID = '1547225755526758460';
 const CANAL_CASO_DE_FALHA_ID = '1558133633850806323';
+const CANAL_ACESSO_PREMIUM_ID = '1549781288251031562'; // Canal de Acesso Premium
+const CANAL_BOOSTERS_ID = '1547211679899717692';     // Canal de Boosters
+const CANAL_PAGAMENTOS_INFO_ID = '1558132299290386553'; // 👈 Canal que vai receber o painel de pagamentos da foto
 const INTERVALO_45_MINUTOS = 45 * 60 * 1000;
 
 export async function enviarAnuncioVendas45Min() {
@@ -15,12 +20,8 @@ export async function enviarAnuncioVendas45Min() {
         }
 
         const canal = guild.channels.cache.get(CANAL_DIVULGACAO_ID) || await guild.channels.fetch(CANAL_DIVULGACAO_ID).catch(() => null);
-        if (!canal?.isTextBased()) {
-            console.error('[divulgacao] Canal de divulgação (1547225755526758460) não foi encontrado!');
-            return;
-        }
+        if (!canal?.isTextBased()) return;
 
-        // Limpa mensagens anteriores do bot no canal de vendas
         const mensagens = await canal.messages.fetch({ limit: 15 }).catch(() => null);
         if (mensagens) {
             for (const msg of mensagens.values()) {
@@ -51,12 +52,8 @@ export async function enviarAnuncioVendas45Min() {
         await canal.send({
             content: '@everyone',
             embeds: [embedVendas],
-            allowedMentions: {
-                parse: ['everyone', 'roles']
-            }
+            allowedMentions: { parse: ['everyone', 'roles'] }
         });
-
-        console.log('[divulgacao] Anúncio de Vendas Online em formato Embed enviado com sucesso no canal', CANAL_DIVULGACAO_ID);
     } catch (error) {
         console.error('[divulgacao] Erro ao enviar anúncio automático:', error);
     }
@@ -72,6 +69,144 @@ export function iniciarDivulgacaoAutomaticaVendas() {
 }
 
 /**
+ * Canal de Acesso Premium (1549781288251031562)
+ */
+export async function enviarPainelAvisosInicio(guild) {
+    try {
+        const canal = guild.channels.cache.get(CANAL_ACESSO_PREMIUM_ID) || await guild.channels.fetch(CANAL_ACESSO_PREMIUM_ID).catch(() => null);
+        if (!canal?.isTextBased()) return;
+
+        const mensagens = await canal.messages.fetch({ limit: 10 }).catch(() => null);
+        if (mensagens) {
+            for (const msg of mensagens.values()) {
+                if (msg.author.id === client.user.id) {
+                    await msg.delete().catch(() => {});
+                }
+            }
+        }
+
+        const storeDir = path.join(process.cwd(), 'assets', 'store');
+        const possiveisNomes1 = ['acesso premium.jpg', 'acesso-premium.jpg', 'acesso_premium.jpg'];
+        const possiveisNomes2 = ['acesso premium 2.jpg', 'acesso-premium-2.jpg', 'acesso_premium_2.jpg'];
+
+        let caminhoImg1 = null;
+        let caminhoImg2 = null;
+
+        for (const nome of possiveisNomes1) {
+            const fullPath = path.join(storeDir, nome);
+            if (fs.existsSync(fullPath)) { caminhoImg1 = fullPath; break; }
+        }
+
+        for (const nome of possiveisNomes2) {
+            const fullPath = path.join(storeDir, nome);
+            if (fs.existsSync(fullPath)) { caminhoImg2 = fullPath; break; }
+        }
+
+        const files = [];
+        if (caminhoImg1) files.push(new AttachmentBuilder(caminhoImg1, { name: 'acesso-premium-1.jpg' }));
+        if (caminhoImg2) files.push(new AttachmentBuilder(caminhoImg2, { name: 'acesso-premium-2.jpg' }));
+
+        const textoCabecalho = '# ACESSO PRIVADO SOMENTE PARA <@&1544411912270512209> <@&1528983705673273466>';
+
+        if (files.length > 0) {
+            await canal.send({ content: textoCabecalho, files: files, allowedMentions: { parse: ['roles'] } });
+        } else {
+            await canal.send({ content: textoCabecalho, allowedMentions: { parse: ['roles'] } });
+        }
+    } catch (error) {
+        console.error('[automation] Erro ao enviar painel de acesso premium:', error);
+    }
+}
+
+/**
+ * Canal de Boosters (1547211679899717692)
+ */
+export async function enviarPainelBoosters(guild) {
+    try {
+        const canal = guild.channels.cache.get(CANAL_BOOSTERS_ID) || await guild.channels.fetch(CANAL_BOOSTERS_ID).catch(() => null);
+        if (!canal?.isTextBased()) return;
+
+        const mensagens = await canal.messages.fetch({ limit: 10 }).catch(() => null);
+        if (mensagens) {
+            for (const msg of mensagens.values()) {
+                if (msg.author.id === client.user.id) {
+                    await msg.delete().catch(() => {});
+                }
+            }
+        }
+
+        const storeDir = path.join(process.cwd(), 'assets', 'store');
+        const possiveisNomes = ['acesso boosters.jpg', 'acesso-boosters.jpg', 'acesso_boosters.jpg'];
+
+        let caminhoImg = null;
+        for (const nome of possiveisNomes) {
+            const fullPath = path.join(storeDir, nome);
+            if (fs.existsSync(fullPath)) { caminhoImg = fullPath; break; }
+        }
+
+        const files = [];
+        if (caminhoImg) files.push(new AttachmentBuilder(caminhoImg, { name: 'acesso-boosters.jpg' }));
+
+        const textoBoosters = '# Acesso ao boosters com mods e programas pro seu fivem/pc';
+
+        if (files.length > 0) {
+            await canal.send({ content: textoBoosters, files: files });
+        } else {
+            await canal.send({ content: textoBoosters });
+        }
+    } catch (error) {
+        console.error('[automation] Erro ao enviar painel de boosters:', error);
+    }
+}
+
+/**
+ * Canal de Pagamentos da Imagem (1558132299290386553)
+ */
+export async function enviarPainelPagamentosInfo(guild) {
+    try {
+        const canal = guild.channels.cache.get(CANAL_PAGAMENTOS_INFO_ID) || await guild.channels.fetch(CANAL_PAGAMENTOS_INFO_ID).catch(() => null);
+        if (!canal?.isTextBased()) {
+            console.error('[automation] Canal de pagamentos info (1558132299290386553) não foi encontrado!');
+            return;
+        }
+
+        // Limpa mensagens anteriores do bot neste canal ao ligar
+        const mensagens = await canal.messages.fetch({ limit: 10 }).catch(() => null);
+        if (mensagens) {
+            for (const msg of mensagens.values()) {
+                if (msg.author.id === client.user.id) {
+                    await msg.delete().catch(() => {});
+                }
+            }
+        }
+
+        const embedPagamentos = new EmbedBuilder()
+            .setColor(0xFF0000)
+            .setTitle('💠 • FORMAS DE PAGAMENTO • COMMUNITY FOR GOATS')
+            .setDescription(
+                'Para garantir agilidade e segurança nas suas compras, informamos que o nosso ' +
+                'método oficial de pagamento é exclusivamente via **PIX**.\n\n' +
+                '⚡ **Liberação Automática:**\n' +
+                '• Pagamentos aprovados via Mercado Pago liberam o seu cargo na hora!\n' +
+                '• Basta escolher o produto desejado em <#1552152094411329546> e escanear o QR ' +
+                'Code ou usar o Pix Copia e Cola.\n\n' +
+                '> 🔒 *Caso tenha qualquer dúvida ou precise de ajuda com um comprovante, ' +
+                'abra um atendimento em <#1547234961528979476>.*'
+            )
+            .setFooter({ text: 'Community For Goats • Pagamento Seguro e Automatizado' });
+
+        await canal.send({
+            embeds: [embedPagamentos],
+            allowedMentions: { parse: [] }
+        });
+
+        console.log('[automation] Painel de pagamentos info enviado com sucesso no canal', CANAL_PAGAMENTOS_INFO_ID);
+    } catch (error) {
+        console.error('[automation] Erro ao enviar painel de pagamentos info:', error);
+    }
+}
+
+/**
  * Envia o aviso detalhado a cada 45 min no canal 🎭・caso-de-falha (1558133633850806323)
  */
 export async function enviarAvisoCasoDeFalha45Min() {
@@ -80,10 +215,7 @@ export async function enviarAvisoCasoDeFalha45Min() {
         if (!guild) return;
 
         const canal = guild.channels.cache.get(CANAL_CASO_DE_FALHA_ID) || await guild.channels.fetch(CANAL_CASO_DE_FALHA_ID).catch(() => null);
-        if (!canal?.isTextBased()) {
-            console.error('[automation] Canal de caso de falha (1558133633850806323) não foi encontrado!');
-            return;
-        }
+        if (!canal?.isTextBased()) return;
 
         const mensagens = await canal.messages.fetch({ limit: 10 }).catch(() => null);
         if (mensagens) {
@@ -118,8 +250,6 @@ export async function enviarAvisoCasoDeFalha45Min() {
             embeds: [embedFalha],
             allowedMentions: { parse: ['everyone'] }
         });
-
-        console.log('[automation] Aviso automático enviado com sucesso no canal de caso de falha!');
     } catch (error) {
         console.error('[automation] Erro ao enviar aviso automático no canal de caso de falha:', error);
     }

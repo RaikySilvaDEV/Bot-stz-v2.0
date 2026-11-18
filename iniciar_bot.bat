@@ -1,7 +1,7 @@
 @echo off
 title Community For Goats - Auto-Update Bot
 
-:: Garante que o terminal abre na pasta exata do bot (essencial para o arranque do Windows)
+:: Garante que o terminal abre na pasta exata do bot
 cd /d "%~dp0"
 
 :: Garante que o Windows encontra o Node.js e o Ollama em D:\Ollama
@@ -35,10 +35,10 @@ echo   MODO ATIVO: bot, painel externo, API, webhook e atualizacoes Git
 echo =====================================================================
 echo.
 
-:: Supervisor cria o tunel Cloudflare, inicia o bot e verifica atualizacoes
-npm.cmd start
+:: Executa o bot utilizando o nodemon diretamente para reiniciar ao salvar qualquer alteracao nos ficheiros .js
+npx nodemon --watch src src/index.js
 
 echo.
-echo [AVISO] O supervisor foi encerrado. A relancar em 3 segundos...
+echo [AVISO] O processo foi encerrado. A relancar em 3 segundos...
 timeout /t 3 /nobreak >nul
 goto LOOP

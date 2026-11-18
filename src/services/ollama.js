@@ -51,7 +51,7 @@ export async function processarMensagemTicketOllama(message) {
                 `  • Server Booster: R$ 7,00`,
                 `  • Cargo Premium Booster: R$ 14,00`,
                 `- Quer saber como conseguir o **PrecisionFix**? Explique que é preciso ter o acesso premium. Indique o canal de informações: <#1549781288251031562>, informe que custa apenas **R$ 12,00**, mostre o link para comprar na loja: <#1552152094411329546>, e diga que se tiver dúvidas de como funciona, pode olhar os vídeos no canal do criador: https://www.youtube.com/@stzzgoat.`,
-                `- Assuntos mais privados, dados sensíveis, alterações manuais ou **pedidos de desconto**: A IA NÃO deve resolver. Nesses casos, responda educadamente que não pode tratar disso, marque obrigatoriamente o seu criador com a menção exata `<@1231602226645041258>` e peça para o usuário aguardar você chegar para resolver.`,
+                `- Assuntos mais privados, dados sensíveis, alterações manuais ou **pedidos de desconto**: A IA NÃO deve resolver. Nesses casos, responda educadamente que não pode tratar disso, marque obrigatoriamente o seu criador com a menção exata <@1231602226645041258> e peça para o usuário aguardar você chegar para resolver.`,
                 `- Seja coerente, inteligente, direto e prestativo.`
             ].join('\n')
         };

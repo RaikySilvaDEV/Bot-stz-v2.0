@@ -69,7 +69,7 @@ function makeProductPanel(selectedValue = null, notice = '') {
         return `• **${product.name}:** ${price}${hasCustomProductPrice(product.value) ? ' · personalizado' : ' · padrão'}`;
     }).join('\n');
     return {
-        embeds: [new EmbedBuilder().setColor(0xE74C3C).setTitle('🛒 Preços do catálogo')
+        embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('🛒 Preços do catálogo')
             .setDescription(`${notice ? `${notice}\n\n` : ''}${summary}\n\nEdite o preço promocional de cada produto. O valor atual será usado no QR Pix e no carrinho.`)],
         components: rows, flags: MessageFlags.Ephemeral
     };
@@ -130,7 +130,7 @@ function makePanel(selectedId = null, notice = '') {
         ? methods.map(method => `${method.active ? '🟢' : '⚪'} **${method.name}** — ${TYPE_LABELS[method.type] ?? method.type}`).join('\n')
         : 'Nenhum método cadastrado. Escolha um tipo no menu acima para começar.';
     const embed = new EmbedBuilder()
-        .setColor(0xE74C3C)
+        .setColor(0xFF0000)
         .setTitle('💳 Gerenciamento de pagamentos')
         .setDescription(`${notice ? `${notice}\n\n` : ''}${details}`)
         .setFooter({ text: `Métodos ativos: ${methods.filter(method => method.active).length} · Inativos: ${methods.filter(method => !method.active).length}` });
@@ -184,18 +184,22 @@ function readMethodForm(interaction, type) {
 }
 
 function buildPublicStatus() {
-    const activeMethods = getPaymentConfig().methods.filter(method => method.active);
     const embed = new EmbedBuilder()
-        .setColor(0xE74C3C)
-        .setTitle('💳 • FORMAS DE PAGAMENTO • COMMUNITY FOR GOATS')
-        .setDescription(activeMethods.length
-            ? activeMethods.map(method => `**${method.name}**\n${TYPE_LABELS[method.type] ?? method.type}${method.instructions ? `\n${method.instructions}` : ''}`).join('\n\n')
-            : 'No momento, não há formas de pagamento ativas.');
-    const linkMethods = activeMethods.filter(method => method.type === 'payment_link' && method.url).slice(0, 5);
-    const components = linkMethods.length ? [new ActionRowBuilder().addComponents(linkMethods.map(method =>
-        new ButtonBuilder().setLabel(method.name.slice(0, 80)).setStyle(ButtonStyle.Link).setURL(method.url)
-    ))] : [];
-    return { embeds: [embed], components, allowedMentions: { parse: [] } };
+        .setColor(0xFF0000)
+        .setTitle('💠 • FORMAS DE PAGAMENTO • COMMUNITY FOR GOATS')
+        .setDescription(
+            'Para garantir agilidade e segurança nas suas compras, informamos que o nosso ' +
+            'método oficial de pagamento é exclusivamente via **PIX**.\n\n' +
+            '⚡ **Liberação Automática:**\n' +
+            '• Pagamentos aprovados via Mercado Pago liberam o seu cargo na hora!\n' +
+            '• Basta escolher o produto desejado em <#1552152094411329546> e escanear o QR ' +
+            'Code ou usar o Pix Copia e Cola.\n\n' +
+            '> 🔒 *Caso tenha qualquer dúvida ou precise de ajuda com um comprovante, ' +
+            'abra um atendimento em <#1547234961528979476>.*'
+        )
+        .setFooter({ text: 'Community For Goats • Pagamento Seguro e Automatizado' });
+
+    return { embeds: [embed], components: [], allowedMentions: { parse: [] } };
 }
 
 async function publishStatusChannel(guild) {
@@ -373,7 +377,7 @@ export async function tratarInteracaoPagamentos(interaction) {
             );
             await audit(interaction, 'Pix de teste Mercado Pago criado', 'R$ 0,10 · cargo Pagamento Teste');
             const embed = new EmbedBuilder()
-                .setColor(0xE74C3C)
+                .setColor(0xFF0000)
                 .setTitle('Pix de teste · R$ 0,10')
                 .setDescription('Escaneie o QR Code ou copie e cole o código Pix. **A cobrança é real**; após a confirmação do Mercado Pago, o bot entrega o cargo **Pagamento Teste** neste servidor.')
                 .addFields({ name: 'Pix Copia e Cola', value: `\`${payment.qrCode.slice(0, 1000)}\`` })

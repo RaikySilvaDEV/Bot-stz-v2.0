@@ -1,22 +1,39 @@
 import 'dotenv/config';
-import { Events } from 'discord.js';
+import { Events, Collection } from 'discord.js';
 import { client } from './client.js';
 import { TOKEN, GUILD_ID } from './config/constants.js';
 import { validateEnvironment } from './config/validateEnv.js';
 import { iniciarVerificadorCargosTemporarios } from './services/tempRoles.js';
 import { configurarAvisoPagamentos, iniciarDivulgacaoAutomaticaVendas } from './features/automation.js';
 import { publicarPainelTickets } from './features/tickets.js';
-import { processarMensagemTicketOllama } from './features/ticketAiManager.js';
-import { registrarEventosInteracao } from './events/interactions.js'; // 👈 Importação correta da função de interações
+import { processarMensagemTicketOllama } from './features/ia.js';
+import { registrarEventosInteracao } from './events/interactions.js';
+import fs from 'node:fs';
+import path from 'node:path';
 import './features/community.js';
 import './events/ready.js';
 import { iniciarMonitoramentoVoice } from './features/voiceMonitor.js';
 
 iniciarMonitoramentoVoice(client);
-
 validateEnvironment();
 
-// 🕹️ REGISTRO OBRIGATÓRIO: Ativa os comandos de barra (/ping, /ia, /iateste, /loja, etc.) e botões
+// 📂 Carregamento dinâmico dos comandos de barra (como o /set)
+client.commands = new Collection();
+const commandsPath = path.join(process.cwd(), 'src', 'commands');
+if (fs.existsSync(commandsPath)) {
+    const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js') && file !== 'deploy.js' && file !== 'definitions.js');
+    for (const file of commandFiles) {
+        const filePath = path.join(commandsPath, file);
+        import(`file://${filePath}`).then(module => {
+            const command = module.default;
+            if (command?.data?.name) {
+                client.commands.set(command.data.name, command);
+            }
+        }).catch(err => console.error(`[comandos] Erro ao carregar ${file}:`, err));
+    }
+}
+
+// 🕹️ REGISTRO OBRIGATÓRIO: Ativa os comandos de barra (/set, /ia, etc.) e botões
 registrarEventosInteracao(client);
 
 // 🤖 Registo do evento de mensagens para a IA atender nos tickets

@@ -12,6 +12,20 @@ export function getSlashCommands() {
             .setName('ping')
             .setDescription('Mostra a latência do bot.'),
         new SlashCommandBuilder()
+            .setName('gerartoken')
+            .setDescription('Gera um token único de acesso de 30 dias vinculado ao HWID.'),
+        new SlashCommandBuilder()
+            .setName('testetoken')
+            .setDescription('Gera um token de teste rápido com validade de 3 minutos.'),
+        new SlashCommandBuilder()
+            .setName('resettoken')
+            .setDescription('Reseta o HWID de um token para permitir o uso em outro PC.')
+            .addStringOption(option => 
+                option.setName('token')
+                    .setDescription('O token exato que deseja resetar')
+                    .setRequired(true))
+            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+        new SlashCommandBuilder()
             .setName('ia')
             .setDescription('Abre o painel para gerenciar a IA de atendimento nos tickets')
             .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
