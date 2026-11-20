@@ -4,7 +4,7 @@ import {
     ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder,
     MessageFlags, PermissionsBitField, StringSelectMenuBuilder
 } from 'discord.js';
-import { ai, client } from '../client.js';
+import { client } from '../client.js';
 import { BOT_ADMIN_ROLE_IDS, BOT_DEVELOPER_IDS, GUILD_ID, PATHS } from '../config/constants.js';
 import { getSettings, updateSettings } from '../repositories/settingsRepository.js';
 import { getDashboardReference, saveDashboardReference } from '../repositories/dashboardRepository.js';
@@ -58,7 +58,7 @@ function getAutomationHealth(status) {
         announcements: { ready: announcementsReady, detail: announcementsReady ? 'Canais de destino encontrados.' : 'Um ou mais canais de destino não foram encontrados.' },
         wallpapers: { ready: wallpaperReady, detail: wallpaperReady ? `Canal pronto e arquivo do dia ${status.wallpaperState.diaAtual} encontrado.` : `Canal ou arquivo do dia ${status.wallpaperState.diaAtual} ausente.` },
         stock: { ready: stockReady, detail: stockReady ? `Arquivos dos itens CTZ #${status.stockState.ctz.indexAtual} e Boosters #${status.stockState.boosters.indexAtual} encontrados.` : 'Canal ou arquivos do próximo item ausentes.' },
-        aiResponses: { ready: Boolean(ai) && status.channelReady('supportCategory'), detail: !ai ? 'GEMINI_API_KEY ausente.' : status.channelReady('supportCategory') ? 'Chave Gemini e categoria de suporte configuradas.' : 'Categoria de suporte ausente.' }
+        aiResponses: { ready: status.channelReady('supportCategory'), detail: status.channelReady('supportCategory') ? 'Categoria configurada. Use /iateste para verificar o Ollama.' : 'Categoria de suporte ausente.' }
     };
     const commerce = status.commerceConfig;
     const products = getCommerceProducts({ includeInactive: false });
@@ -82,9 +82,8 @@ function countAssets(folder, index) {
     } catch { return 0; }
 }
 
-async function collectStatus(guild) {
+function collectStatus(guild, channels) {
     const settings = getSettings();
-    const channels = await guild.channels.fetch().catch(() => guild.channels.cache);
     const channelStatus = Object.entries(settings.channels).map(([key, id]) => {
         const channel = id ? channels.get(id) : null;
         const validType = key === 'supportCategory'
@@ -114,7 +113,7 @@ async function collectStatus(guild) {
 export async function getDashboardDetails() {
     const guild = client.guilds.cache.get(GUILD_ID);
     if (!guild) throw new Error(`Servidor configurado não encontrado: ${GUILD_ID}`);
-    const status = await collectStatus(guild);
+    const status = collectStatus(guild, guild.channels.cache);
     const automationHealth = getAutomationHealth(status);
     const channels = status.channelStatus.map(item => {
         const permissions = item.channel ? item.channel.permissionsFor(client.user) : null;
@@ -142,7 +141,7 @@ export async function getDashboardDetails() {
         services: {
             discord: { active: status.isReady, operational: status.isReady, detail: status.isReady ? 'Conectado ao Discord.' : 'Cliente Discord desconectado.' },
             api: { active: status.api.running, operational: status.api.running, port: status.api.port, detail: status.api.running ? `Escutando na porta ${status.api.port}.` : 'Servidor da API não está escutando.' },
-            gemini: { active: Boolean(status.settings.automations.aiResponses), configured: Boolean(ai), operational: Boolean(status.settings.automations.aiResponses && ai), detail: !ai ? 'GEMINI_API_KEY ausente.' : status.settings.automations.aiResponses ? 'Atendimento por IA habilitado.' : 'Atendimento por IA pausado.' },
+            ollama: { active: Boolean(status.settings.automations.aiResponses), configured: automationHealth.aiResponses.ready, operational: Boolean(status.settings.automations.aiResponses && automationHealth.aiResponses.ready), detail: automationHealth.aiResponses.detail },
             ticketCreation: { active: true, operational: status.ticketPermissionReady, detail: status.ticketPermissionReady ? 'Categoria e permissão para criar canais disponíveis.' : 'Categoria ausente ou permissão ManageChannels indisponível.' }
         },
         automations, channels,
@@ -164,19 +163,19 @@ export async function getDashboardDetails() {
 function buildEmbed(page, status, guild) {
     const { settings } = status;
     const embed = new EmbedBuilder()
-        .setColor(0xE74C3C) // 🔴 Alterado para vermelho
+        .setColor(0xE74C3C)
         .setTitle(`📊 Painel do bot · ${guild.name}`)
-        .setFooter({ text: `Atualizado • use o botão para consultar novamente · online há ${uptimeText()}` })
+        .setFooter({ text: 'Última atualização' })
         .setTimestamp();
 
     if (page === 'geral') {
-        embed.setDescription('Resumo dos serviços, estado de conexão e recursos que precisam de atenção.');
+        embed.setDescription('Acompanhe a conexão, os tickets e os pagamentos do servidor.');
         embed.addFields(
             { name: 'Discord', value: status.isReady ? '🟢 Conectado' : '🔴 Desconectado', inline: true },
             { name: 'Latência', value: client.ws.ping >= 0 ? `${client.ws.ping} ms` : 'Aguardando gateway', inline: true },
             { name: 'Tempo ligado', value: uptimeText(), inline: true },
-            { name: 'API Postman', value: status.api.running ? `🟢 Operante · porta ${status.api.port}` : '⚪ Inativa', inline: true },
-            { name: 'Atendimento por IA', value: stateLabel(settings.automations.aiResponses, Boolean(ai)), inline: true },
+            { name: 'API e painel web', value: status.api.running ? `🟢 Operante · porta ${status.api.port}` : '⚪ Inativa', inline: true },
+            { name: 'Atendimento por IA', value: settings.automations.aiResponses ? '🟢 Habilitado · Ollama' : '⚪ Pausado', inline: true },
             { name: 'Memória do processo', value: `${Math.round(process.memoryUsage().rss / 1024 / 1024)} MB`, inline: true },
             { name: 'Painel de tickets', value: stateLabel(true, status.ticketPermissionReady), inline: true },
             { name: 'Métodos de pagamento', value: `${status.paymentConfig.methods.filter(item => item.active).length} ativos · ${status.paymentConfig.methods.filter(item => !item.active).length} inativos`, inline: true }
@@ -214,12 +213,14 @@ function buildEmbed(page, status, guild) {
     return embed;
 }
 
-function buildComponents(page, status, guild) {
-    const webUrl = dashboardWebUrl();
+function buildComponents(page, status, webTicket) {
+    const webButton = new ButtonBuilder().setLabel('Ver na web').setEmoji('🌐');
+    if (webTicket) webButton.setStyle(ButtonStyle.Link).setURL(dashboardWebUrl(webTicket));
+    else webButton.setStyle(ButtonStyle.Secondary).setCustomId('dashboard:open-web');
     const rows = [new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`dashboard:refresh:${page}`).setLabel('Atualizar painel').setStyle(ButtonStyle.Primary).setEmoji('🔄'),
         new ButtonBuilder().setCustomId('dashboard:open-payments').setLabel('Gerenciar pagamentos').setStyle(ButtonStyle.Secondary).setEmoji('💳'),
-        new ButtonBuilder().setLabel('Ver na web').setStyle(ButtonStyle.Link).setURL(webUrl).setEmoji('🌐')
+        webButton
     )];
     rows.push(new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
@@ -244,25 +245,28 @@ function buildComponents(page, status, guild) {
 }
 
 function dashboardWebUrl(ticket = null) {
-    const localWebUrl = `http://127.0.0.1:${getApiStatus().port}/painel`;
+    const localWebUrl = new URL(`http://127.0.0.1:${getApiStatus().port}/painel`);
+    let parsed = localWebUrl;
     try {
-        const parsed = new URL(process.env.DASHBOARD_PUBLIC_URL?.trim() || localWebUrl);
-        const hostname = parsed.hostname.replace(/^\[|\]$/g, '');
+        const candidate = new URL(process.env.DASHBOARD_PUBLIC_URL?.trim() || localWebUrl);
+        const hostname = candidate.hostname.replace(/^\[|\]$/g, '');
         const ipv4 = hostname.split('.').map(Number);
         const privateIpv4 = isIP(hostname) === 4 && (ipv4[0] === 10 || ipv4[0] === 192 && ipv4[1] === 168 || ipv4[0] === 172 && ipv4[1] >= 16 && ipv4[1] <= 31);
         const privateIpv6 = isIP(hostname) === 6 && (/^(fc|fd)/i.test(hostname) || /^fe[89ab]/i.test(hostname));
-        const loopbackHttp = parsed.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname);
-        const privateLanHttp = parsed.protocol === 'http:' && (privateIpv4 || privateIpv6);
-        if (parsed.protocol !== 'https:' && !loopbackHttp && !privateLanHttp) return localWebUrl;
-        if (ticket) parsed.hash = `access=${ticket}`;
-        return parsed.href;
-    } catch { return localWebUrl; }
+        const loopback = ['localhost', '127.0.0.1', '::1'].includes(hostname);
+        if (candidate.protocol === 'https:' || (candidate.protocol === 'http:' && (loopback || privateIpv4 || privateIpv6))) {
+            parsed = candidate;
+        }
+    } catch { /* Use the local URL. */ }
+    if (parsed.pathname === '/') parsed.pathname = '/painel';
+    if (ticket) parsed.hash = `access=${ticket}`;
+    return parsed.href;
 }
 
-async function dashboardPayload(page, guild) {
+function dashboardPayload(page, guild, webTicket = null) {
     const safePage = PAGES.some(([value]) => value === page) ? page : 'geral';
-    const status = await collectStatus(guild);
-    return { embeds: [buildEmbed(safePage, status, guild)], components: buildComponents(safePage, status, guild), allowedMentions: { parse: [] } };
+    const status = collectStatus(guild, guild.channels.cache);
+    return { embeds: [buildEmbed(safePage, status, guild)], components: buildComponents(safePage, status, webTicket), allowedMentions: { parse: [] } };
 }
 
 function privateOverwrites(guild) {
@@ -291,7 +295,7 @@ async function ensureDashboard(guild) {
     saveDashboardReference(channel.id, reference.messageId);
     const existing = reference.channelId === channel.id && reference.messageId
         ? await channel.messages.fetch(reference.messageId).catch(() => null) : null;
-    const payload = await dashboardPayload('geral', guild);
+    const payload = dashboardPayload('geral', guild);
     const message = existing ? await existing.edit(payload) : await channel.send(payload);
     saveDashboardReference(channel.id, message.id);
     return channel;
@@ -304,44 +308,38 @@ export async function configurarPainelDashboard() {
 }
 
 async function updateDashboardMessage(interaction, page = 'geral') {
-    await interaction.update(await dashboardPayload(page, interaction.guild));
+    const isPrivate = interaction.message?.flags.has(MessageFlags.Ephemeral);
+    const ticket = isPrivate ? issueDashboardLoginTicket(interaction.user.id, interaction.guild.id) : null;
+    await interaction.update(dashboardPayload(page, interaction.guild, ticket));
 }
 
 export async function tratarInteracaoDashboard(interaction) {
     const command = interaction.isChatInputCommand() && interaction.commandName === 'painel';
     const component = (interaction.isButton() || interaction.isStringSelectMenu()) && interaction.customId.startsWith('dashboard:');
     if (!command && !component) return false;
-    const isManager = Boolean(interaction.guild && isServerManager(interaction));
-    if (!interaction.guild || !isManager) {
-        const response = { content: 'O painel está disponível apenas para o dono do servidor e desenvolvedores configurados.', flags: MessageFlags.Ephemeral };
+    if (interaction.guild?.id !== GUILD_ID || !isServerManager(interaction)) {
+        const response = { content: 'Apenas o dono do servidor e a equipe configurada podem acessar o painel.', flags: MessageFlags.Ephemeral };
         if (interaction.deferred || interaction.replied) await interaction.followUp(response);
         else await interaction.reply(response);
         return true;
     }
 
     if (command) {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        try {
-            const channel = await ensureDashboard(interaction.guild);
-            const ticket = issueDashboardLoginTicket(interaction.user.id, interaction.guild.id);
-            const components = ticket ? [new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setLabel('Abrir painel web').setStyle(ButtonStyle.Link).setURL(dashboardWebUrl(ticket)).setEmoji('🌐')
-            )] : [];
-            const remoteUrl = Boolean(process.env.DASHBOARD_PUBLIC_URL?.trim());
-            const accessNote = remoteUrl ? 'Use o link pessoal abaixo para entrar no site.' : 'O link do site usa 127.0.0.1 e só funciona no computador que executa o bot; configure DASHBOARD_PUBLIC_URL com HTTPS para acesso externo.';
-            await interaction.editReply({ content: `✅ Painel criado ou atualizado: ${channel}\n${accessNote}`, components });
-            try { await logAction(interaction.guild, interaction.user.id, 'Painel do bot aberto', `Canal ${channel.name}`); }
-            catch (error) { console.error('[painel] Não foi possível registrar a abertura:', error); }
-        } catch (error) {
-            console.error('[painel] Não foi possível criar/atualizar o painel:', error);
-            await interaction.editReply({ content: '❌ Não consegui preparar o painel. Confira se o bot pode criar canais, alterar permissões e enviar mensagens.' });
-        }
+        const ticket = issueDashboardLoginTicket(interaction.user.id, interaction.guild.id);
+        await interaction.reply({ ...dashboardPayload('geral', interaction.guild, ticket), flags: MessageFlags.Ephemeral });
+        try { await logAction(interaction.guild, interaction.user.id, 'Painel do bot aberto', 'Comando /painel'); }
+        catch (error) { console.error('[painel] Não foi possível registrar a abertura:', error); }
         return true;
     }
 
     if (interaction.isButton()) {
-        if (interaction.customId === 'dashboard:open-payments') {
-            await interaction.reply({ content: 'Use `/pagamentos` para abrir o painel completo de métodos de pagamento.', flags: MessageFlags.Ephemeral });
+        if (interaction.customId === 'dashboard:open-web') {
+            const ticket = issueDashboardLoginTicket(interaction.user.id, interaction.guild.id);
+            const components = ticket ? [new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setLabel('Abrir painel web').setStyle(ButtonStyle.Link).setURL(dashboardWebUrl(ticket))
+            )] : [];
+            const content = ticket ? 'Link pessoal. Use em até 10 minutos.' : 'Configure DASHBOARD_PASSWORD ou API_KEY para habilitar o acesso web.';
+            await interaction.reply({ content, components, flags: MessageFlags.Ephemeral });
             return true;
         }
         await updateDashboardMessage(interaction, interaction.customId.split(':')[2] ?? 'geral');
@@ -372,9 +370,9 @@ export async function tratarInteracaoDashboard(interaction) {
             }
             setCommerceAutomation(commerceKey, active);
         } else updateSettings({ automations: { [key]: active } });
+        await updateDashboardMessage(interaction, 'automacoes');
         try { await logAction(interaction.guild, interaction.user.id, 'Automação alterada pelo painel', `${ALL_AUTOMATION_LABELS[key]}: ${active ? 'ativa' : 'inativa'}`); }
         catch (error) { console.error('[painel] Não foi possível registrar a alteração da automação:', error); }
-        await updateDashboardMessage(interaction, 'automacoes');
         return true;
     }
     return true;

@@ -99,7 +99,7 @@ function montarPainel(anuncios, selecionadoId = null) {
     const texto = anuncios.length
         ? `**Anúncios FiveM** — publicados em <#${announcementChannelId}>. Selecione um anúncio para atualizar ou remover.${anuncios.length > 25 ? `\nExibindo os primeiros 25 de ${anuncios.length}.` : ''}`
         : `Ainda não há anúncios cadastrados. Use **Cadastrar anúncio** para publicar o primeiro em <#${announcementChannelId}>.`;
-    return { content: texto, components: componentes, flags: MessageFlags.Ephemeral };
+    return { content: texto, components: componentes };
 }
 
 function montarModal(anuncio = null) {
@@ -141,7 +141,7 @@ export async function tratarInteracaoAnunciosFiveM(interaction) {
         return true;
     }
     if (comando) {
-        await interaction.reply(montarPainel(getAnnouncements()));
+        await interaction.reply({ ...montarPainel(getAnnouncements()), flags: MessageFlags.Ephemeral });
         return true;
     }
     if (interaction.isStringSelectMenu()) {
@@ -158,8 +158,9 @@ export async function tratarInteracaoAnunciosFiveM(interaction) {
             else await interaction.showModal(montarModal(anuncio));
         }
         if (acao === 'delete') {
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             await removerAnuncioFiveM(id, interaction.user.id);
-            await interaction.update(montarPainel(getAnnouncements()));
+            await interaction.editReply(montarPainel(getAnnouncements()));
         }
         return true;
     }
@@ -168,14 +169,15 @@ export async function tratarInteracaoAnunciosFiveM(interaction) {
     const id = isNovo ? null : interaction.customId.split(':')[2];
     const titulo = interaction.fields.getTextInputValue('titulo').trim();
     const texto = interaction.fields.getTextInputValue('texto').trim();
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const anuncio = isNovo
         ? await criarAnuncioFiveM({ titulo, texto, actorId: interaction.user.id })
         : await atualizarAnuncioFiveM(id, { titulo, texto }, interaction.user.id);
     if (!anuncio) {
-        await interaction.reply({ content: 'Esse anúncio não está mais na lista. Abra `/anuncios-fivem` novamente.', flags: MessageFlags.Ephemeral });
+        await interaction.editReply({ content: 'Esse anúncio não está mais na lista. Abra `/anuncios-fivem` novamente.' });
         return true;
     }
     const channelId = getSettings().channels.fivemAnnouncements;
-    await interaction.reply({ content: `✅ Anúncio ${isNovo ? 'cadastrado' : 'atualizado'} no canal <#${channelId}>.`, flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ content: `✅ Anúncio ${isNovo ? 'cadastrado' : 'atualizado'} no canal <#${channelId}>.` });
     return true;
 }

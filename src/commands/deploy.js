@@ -7,7 +7,7 @@ export async function registrarComandos() {
     const rest = new REST({ version: '10' }).setToken(TOKEN);
     await rest.put(
         Routes.applicationGuildCommands(client.application.id, GUILD_ID),
-        { body: getSlashCommands() }
+        { body: getSlashCommands(client.commands?.values() ?? []) }
     );
     console.log('Comandos de barra registrados no servidor.');
 }

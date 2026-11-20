@@ -62,7 +62,7 @@ export async function tratarInteracaoAdministracao(interaction) {
     if (interaction.commandName === 'status') {
         const settings = getSettings();
         const guild = client.guilds.cache.get(GUILD_ID);
-        const channels = guild ? await guild.channels.fetch().catch(() => null) : null;
+        const channels = guild?.channels.cache;
         const missingChannels = Object.entries(settings.channels)
             .filter(([key, id]) => id && key !== 'audit' && !channels?.has(id))
             .map(([key]) => CHANNEL_LABELS[key]);
@@ -105,7 +105,75 @@ export async function tratarInteracaoAdministracao(interaction) {
     }
 
     if (interaction.commandName === 'backup') {
-        const snapshot = {
+        const snapshot = createBackupSnapshot();
+        const filename = `backup-community-${new Date().toISOString().slice(0, 10)}.json`;
+        const attachment = new AttachmentBuilder(Buffer.from(`${JSON.stringify(snapshot, null, 2)}\n`, 'utf8'), { name: filename });
+        await interaction.reply({ content: 'Backup completo gerado. Inclui configurações e estados persistentes; não inclui tokens nem transcrições de tickets.', files: [attachment], flags: MessageFlags.Ephemeral });
+        await logConfigurationChange(interaction, 'Backup gerado', filename);
+        return true;
+    }
+
+    const subcommand = interaction.options.getSubcommand();
+    if (subcommand === 'ver') {
+        await interaction.reply({ content: formatSettings(getSettings()), flags: MessageFlags.Ephemeral });
+    } else if (subcommand === 'canal') {
+        const key = interaction.options.getString('tipo');
+        const channel = interaction.options.getChannel('canal');
+        if (key === 'supportCategory' ? channel.type !== ChannelType.GuildCategory : !channel.isTextBased()) {
+            await interaction.reply({ content: key === 'supportCategory' ? 'Escolha uma categoria do servidor.' : 'Escolha um canal de texto.' , flags: MessageFlags.Ephemeral });
+            return true;
+        }
+        const settings = updateSettings({ channels: { [key]: channel.id } });
+        await interaction.reply({ content: `✅ ${CHANNEL_LABELS[key]} definido como ${channel}.\n\n${formatSettings(settings)}`, flags: MessageFlags.Ephemeral });
+        await logConfigurationChange(interaction, 'Canal alterado', `${CHANNEL_LABELS[key]} → <#${channel.id}>`);
+    } else if (subcommand === 'automacao') {
+        const key = interaction.options.getString('tipo');
+        const enabled = interaction.options.getBoolean('ativa');
+        const settings = updateSettings({ automations: { [key]: enabled } });
+        await interaction.reply({ content: `✅ ${AUTOMATION_LABELS[key]} ${enabled ? 'ativados' : 'pausados'}.`, flags: MessageFlags.Ephemeral });
+        await logConfigurationChange(interaction, 'Automação alterada', `${AUTOMATION_LABELS[key]}: ${enabled ? 'ligados' : 'pausados'}`);
+    } else if (subcommand === 'mencoes') {
+        const enabled = interaction.options.getBoolean('ativa');
+        const settings = updateSettings({ everyoneMentions: enabled });
+        await interaction.reply({ content: `✅ Menções @everyone ${settings.everyoneMentions ? 'ativadas' : 'desativadas'}.`, flags: MessageFlags.Ephemeral });
+        await logConfigurationChange(interaction, '@everyone alterado', enabled ? 'menções ativadas' : 'menções desativadas');
+    } else if (subcommand === 'horarios') {
+        const raw = interaction.options.getString('horas');
+        const parts = raw.split(',').map(value => value.trim());
+        const hours = [...new Set(parts.map(Number))].sort((a, b) => a - b);
+        if (!parts.length || parts.some(value => !/^\d{1,2}$/.test(value)) || hours.some(hour => hour < 0 || hour > 23)) {
+            await interaction.reply({ content: 'Informe horas de 0 a 23 separadas por vírgula, por exemplo: `9,15,21`.', flags: MessageFlags.Ephemeral });
+            return true;
+        }
+        const settings = updateSettings({ announcementHours: hours });
+        await interaction.reply({ content: `✅ Avisos agendados para ${settings.announcementHours.map(hour => `${String(hour).padStart(2, '0')}:00`).join(', ')} (${settings.timezone}).`, flags: MessageFlags.Ephemeral });
+        await logConfigurationChange(interaction, 'Horários alterados', hours.map(hour => `${String(hour).padStart(2, '0')}:00`).join(', '));
+    } else if (subcommand === 'fuso') {
+        const timezone = interaction.options.getString('zona').trim();
+        try { new Intl.DateTimeFormat('en-US', { timeZone: timezone }); }
+        catch {
+            await interaction.reply({ content: 'Esse fuso não é válido. Use um nome IANA, como `America/Sao_Paulo`.', flags: MessageFlags.Ephemeral });
+            return true;
+        }
+        updateSettings({ timezone });
+        await interaction.reply({ content: `✅ Fuso horário definido para **${timezone}**.`, flags: MessageFlags.Ephemeral });
+        await logConfigurationChange(interaction, 'Fuso horário alterado', timezone);
+    } else if (subcommand === 'auditoria') {
+        const enabled = interaction.options.getBoolean('ativa');
+        const channel = interaction.options.getChannel('canal');
+        if (enabled && !channel?.isTextBased()) {
+            await interaction.reply({ content: 'Escolha um canal de texto privado para receber os logs.', flags: MessageFlags.Ephemeral });
+            return true;
+        }
+        updateSettings({ channels: { audit: enabled ? channel.id : null } });
+        await interaction.reply({ content: enabled ? `✅ Logs administrativos serão enviados para ${channel}.` : '✅ Envio de logs em canal desativado; os registros continuarão salvos localmente.', flags: MessageFlags.Ephemeral });
+        await logConfigurationChange(interaction, 'Canal de auditoria alterado', enabled ? `Canal ${channel.name}` : 'Envio em canal desligado');
+    }
+    return true;
+}
+
+export function createBackupSnapshot() {
+    return {
             criadoEm: new Date().toISOString(),
             servidor: GUILD_ID,
             configuracoes: getSettings(),
@@ -129,68 +197,4 @@ export async function tratarInteracaoAdministracao(interaction) {
             referenciasTranscricoesRemotas: getRemoteTranscriptReferences(),
             logsAdministrativos: getAuditEntries(1000)
         };
-        const filename = `backup-community-${new Date().toISOString().slice(0, 10)}.json`;
-        const attachment = new AttachmentBuilder(Buffer.from(`${JSON.stringify(snapshot, null, 2)}\n`, 'utf8'), { name: filename });
-        await interaction.reply({ content: 'Backup completo gerado. Inclui configurações e estados persistentes; não inclui tokens nem transcrições de tickets.', files: [attachment], flags: MessageFlags.Ephemeral });
-        await logConfigurationChange(interaction, 'Backup gerado', filename);
-        return true;
-    }
-
-    const subcommand = interaction.options.getSubcommand();
-    if (subcommand === 'ver') {
-        await interaction.reply({ content: formatSettings(getSettings()), flags: MessageFlags.Ephemeral });
-    } else if (subcommand === 'canal') {
-        const key = interaction.options.getString('tipo');
-        const channel = interaction.options.getChannel('canal');
-        if (key === 'supportCategory' ? channel.type !== ChannelType.GuildCategory : !channel.isTextBased()) {
-            await interaction.reply({ content: key === 'supportCategory' ? 'Escolha uma categoria do servidor.' : 'Escolha um canal de texto.' , flags: MessageFlags.Ephemeral });
-            return true;
-        }
-        const settings = updateSettings({ channels: { [key]: channel.id } });
-        await logConfigurationChange(interaction, 'Canal alterado', `${CHANNEL_LABELS[key]} → <#${channel.id}>`);
-        await interaction.reply({ content: `✅ ${CHANNEL_LABELS[key]} definido como ${channel}.\n\n${formatSettings(settings)}`, flags: MessageFlags.Ephemeral });
-    } else if (subcommand === 'automacao') {
-        const key = interaction.options.getString('tipo');
-        const enabled = interaction.options.getBoolean('ativa');
-        const settings = updateSettings({ automations: { [key]: enabled } });
-        await logConfigurationChange(interaction, 'Automação alterada', `${AUTOMATION_LABELS[key]}: ${enabled ? 'ligados' : 'pausados'}`);
-        await interaction.reply({ content: `✅ ${AUTOMATION_LABELS[key]} ${enabled ? 'ativados' : 'pausados'}.`, flags: MessageFlags.Ephemeral });
-    } else if (subcommand === 'mencoes') {
-        const enabled = interaction.options.getBoolean('ativa');
-        const settings = updateSettings({ everyoneMentions: enabled });
-        await logConfigurationChange(interaction, '@everyone alterado', enabled ? 'menções ativadas' : 'menções desativadas');
-        await interaction.reply({ content: `✅ Menções @everyone ${settings.everyoneMentions ? 'ativadas' : 'desativadas'}.`, flags: MessageFlags.Ephemeral });
-    } else if (subcommand === 'horarios') {
-        const raw = interaction.options.getString('horas');
-        const parts = raw.split(',').map(value => value.trim());
-        const hours = [...new Set(parts.map(Number))].sort((a, b) => a - b);
-        if (!parts.length || parts.some(value => !/^\d{1,2}$/.test(value)) || hours.some(hour => hour < 0 || hour > 23)) {
-            await interaction.reply({ content: 'Informe horas de 0 a 23 separadas por vírgula, por exemplo: `9,15,21`.', flags: MessageFlags.Ephemeral });
-            return true;
-        }
-        const settings = updateSettings({ announcementHours: hours });
-        await logConfigurationChange(interaction, 'Horários alterados', hours.map(hour => `${String(hour).padStart(2, '0')}:00`).join(', '));
-        await interaction.reply({ content: `✅ Avisos agendados para ${settings.announcementHours.map(hour => `${String(hour).padStart(2, '0')}:00`).join(', ')} (${settings.timezone}).`, flags: MessageFlags.Ephemeral });
-    } else if (subcommand === 'fuso') {
-        const timezone = interaction.options.getString('zona').trim();
-        try { new Intl.DateTimeFormat('en-US', { timeZone: timezone }); }
-        catch {
-            await interaction.reply({ content: 'Esse fuso não é válido. Use um nome IANA, como `America/Sao_Paulo`.', flags: MessageFlags.Ephemeral });
-            return true;
-        }
-        updateSettings({ timezone });
-        await logConfigurationChange(interaction, 'Fuso horário alterado', timezone);
-        await interaction.reply({ content: `✅ Fuso horário definido para **${timezone}**.`, flags: MessageFlags.Ephemeral });
-    } else if (subcommand === 'auditoria') {
-        const enabled = interaction.options.getBoolean('ativa');
-        const channel = interaction.options.getChannel('canal');
-        if (enabled && !channel?.isTextBased()) {
-            await interaction.reply({ content: 'Escolha um canal de texto privado para receber os logs.', flags: MessageFlags.Ephemeral });
-            return true;
-        }
-        updateSettings({ channels: { audit: enabled ? channel.id : null } });
-        await interaction.reply({ content: enabled ? `✅ Logs administrativos serão enviados para ${channel}.` : '✅ Envio de logs em canal desativado; os registros continuarão salvos localmente.', flags: MessageFlags.Ephemeral });
-        await logConfigurationChange(interaction, 'Canal de auditoria alterado', enabled ? `Canal ${channel.name}` : 'Envio em canal desligado');
-    }
-    return true;
 }

@@ -11,3 +11,5 @@ node_modules/
 bot-runtime.log
 bot-runtime-error.log
 .mp-integrate-progress.md
+
+/src/commands/tokens.json

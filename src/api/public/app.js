@@ -1,14 +1,35 @@
+import { resourceRoutes, renderBotResources } from './resources.js';
 const byId = id => document.getElementById(id);
 const state = { data: null, page: 'overview', methods: [], mercadoPago: null, commerce: null, roles: [], config: null };
-const pageTitles = { overview: 'Visão geral', services: 'Serviços', automations: 'Automações', channels: 'Canais', config: 'Configuração', store: 'Loja', payments: 'Pagamentos' };
+const pageTitles = { messages: 'Mensagens', partners: 'Parcerias', announcements: 'Anúncios', tickets: 'Tickets', commands: 'Comandos', audit: 'Auditoria', overview: 'Visão geral', services: 'Serviços', automations: 'Automações', channels: 'Canais', config: 'Configuração', store: 'Loja', payments: 'Pagamentos' };
+const mobilePages = new Set(['overview', 'store', 'messages', 'tickets']);
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 
+let noticeTimer;
+let noticeExitTimer;
 function notice(message, error = false) {
   const element = byId('notice');
-  element.textContent = message;
-  element.hidden = !message;
+  if (noticeTimer) window.clearTimeout(noticeTimer);
+  if (noticeExitTimer) window.clearTimeout(noticeExitTimer);
+  element.querySelector('.toast-message').textContent = message;
+  element.querySelector('use').setAttribute('href', error ? '#icon-circle-alert' : '#icon-circle-check');
   element.classList.toggle('error', error);
-  if (message) window.setTimeout(() => { if (element.textContent === message) element.hidden = true; }, 6000);
+  element.setAttribute('role', error ? 'alert' : 'status');
+  element.setAttribute('aria-live', error ? 'assertive' : 'polite');
+  element.hidden = !message;
+  element.classList.remove('is-hiding');
+  element.classList.remove('is-visible');
+  void element.offsetWidth;
+  if (!message) return;
+  element.classList.add('is-visible');
+  noticeTimer = window.setTimeout(() => {
+    element.classList.remove('is-visible');
+    element.classList.add('is-hiding');
+    noticeExitTimer = window.setTimeout(() => {
+      element.hidden = true;
+      element.classList.remove('is-hiding');
+    }, 180);
+  }, 4820);
 }
 
 async function request(path, options = {}) {
@@ -34,6 +55,13 @@ function showApp() {
   byId('app').hidden = false;
 }
 
+function closeMobileMore() {
+  const menu = byId('mobile-more');
+  const toggle = byId('mobile-more-toggle');
+  menu.hidden = true;
+  toggle.setAttribute('aria-expanded', 'false');
+}
+
 function badge(text, kind = '') { return `<span class="badge ${kind}">${escapeHtml(text)}</span>`; }
 function statusBadge(active, operational, configured = true) {
   if (!active) return badge('Inativo');
@@ -43,27 +71,39 @@ function statusBadge(active, operational, configured = true) {
 
 function renderOverview(data) {
   const services = Object.entries(data.services);
-  const healthy = services.filter(([, item]) => item.operational).length;
   const activeAutomations = data.automations.filter(item => item.active).length;
   const problematic = data.automations.filter(item => item.active && !item.ready);
+  const ping = data.bot.ready && data.bot.pingMs >= 0 ? `${data.bot.pingMs} ms` : 'Indisponível';
   byId('content').innerHTML = `
-    <div class="grid">
-      <article class="card"><h2>Conexão Discord</h2><div class="metric">${data.bot.ready ? 'Online' : 'Offline'}</div>${badge(data.bot.ready ? `${data.bot.pingMs} ms` : 'Sem conexão', data.bot.ready ? 'ok' : 'bad')}<p class="detail">Tempo ligado: ${escapeHtml(formatUptime(data.bot.uptimeSeconds))}</p></article>
-      <article class="card"><h2>Saúde dos serviços</h2><div class="metric">${healthy}/${services.length}</div><p class="detail">Serviços em condição operacional.</p></article>
-      <article class="card"><h2>Automações</h2><div class="metric">${activeAutomations}/${data.automations.length}</div><p class="detail">Ativas no momento.</p></article>
-      <article class="card"><h2>Pagamentos</h2><div class="metric">${data.payments.active} ativos</div><p class="detail">${data.payments.inactive} inativos · configuração protegida</p></article>
-    </div>
-    <div class="section-head"><h2>Serviços principais</h2></div>
-    <div class="grid two">${services.map(([key, item]) => `<article class="card"><div class="status-line"><span class="status-icon">${item.operational ? '🟢' : item.active ? '🟠' : '⚪'}</span><div><h3>${escapeHtml(serviceName(key))}</h3>${statusBadge(item.active, item.operational, item.configured !== false)}<p class="detail">${escapeHtml(item.detail)}</p></div></div></article>`).join('')}</div>
-    <div class="section-head"><h2>Precisa de atenção</h2></div>
-    <div class="grid two">${problematic.length ? problematic.map(item => `<article class="card"><h3>${escapeHtml(item.label)}</h3>${badge('Ativa · não operante', 'warn')}<p class="detail">${escapeHtml(item.detail)}</p></article>`).join('') : '<div class="card"><p class="detail">Nenhuma automação ativa com dependências faltando.</p></div>'}</div>`;
+    <section class="overview-status" aria-labelledby="overview-status-title">
+      <div class="overview-heading"><h2 id="overview-status-title">${data.bot.ready ? 'Discord conectado' : 'Discord desconectado'}</h2>${badge(data.bot.ready ? 'Online' : 'Offline', data.bot.ready ? 'ok' : 'bad')}</div>
+      <dl class="overview-metrics">
+        <div><dt>Latência</dt><dd>${escapeHtml(ping)}</dd></div>
+        <div><dt>Tempo ligado</dt><dd>${escapeHtml(formatUptime(data.bot.uptimeSeconds))}</dd></div>
+        <div><dt>Memória</dt><dd>${escapeHtml(data.bot.memoryMb)} MB</dd></div>
+        <div><dt>Automações ativas</dt><dd>${activeAutomations} / ${data.automations.length}</dd></div>
+        <div><dt>Métodos de pagamento</dt><dd>${data.payments.active} ativos <small>${data.payments.inactive} inativos</small></dd></div>
+      </dl>
+    </section>
+    <div class="overview-sections">
+      <section aria-labelledby="overview-services"><h2 id="overview-services">Serviços</h2>
+        <ul class="overview-list">${services.filter(([key]) => key !== 'discord').map(([key, item]) => `<li><div><strong>${escapeHtml(serviceName(key))}</strong><p class="detail">${escapeHtml(item.detail)}</p></div>${serviceBadge(key, item)}</li>`).join('')}</ul>
+      </section>
+      <section aria-labelledby="overview-attention"><h2 id="overview-attention">Automações que precisam de atenção</h2>
+        ${problematic.length ? `<ul class="overview-list">${problematic.map(item => `<li><div><strong>${escapeHtml(item.label)}</strong><p class="detail">${escapeHtml(item.detail)}</p></div></li>`).join('')}</ul>` : '<p class="overview-empty">Nenhuma automação ativa precisa de atenção.</p>'}
+      </section>
+    </div>`;
 }
 
-function serviceName(key) { return ({ discord: 'Gateway Discord', api: 'API e painel web', gemini: 'Atendimento Gemini', ticketCreation: 'Criação de tickets' })[key] ?? key; }
+function serviceName(key) { return ({ discord: 'Gateway Discord', api: 'API e painel web', ollama: 'Atendimento Ollama', ticketCreation: 'Criação de tickets' })[key] ?? key; }
+function serviceBadge(key, item) {
+  if (key === 'ollama' && item.active && item.configured) return badge('Habilitado', 'ok');
+  return statusBadge(item.active, item.operational, item.configured !== false);
+}
 function formatUptime(seconds) { const d = Math.floor(seconds / 86400), h = Math.floor(seconds % 86400 / 3600), m = Math.floor(seconds % 3600 / 60); return `${d}d ${h}h ${m}min`; }
 
 function renderServices(data) {
-  byId('content').innerHTML = `<div class="grid two">${Object.entries(data.services).map(([key, item]) => `<article class="card"><p class="eyebrow">SERVIÇO</p><h2>${escapeHtml(serviceName(key))}</h2>${statusBadge(item.active, item.operational, item.configured !== false)}<p class="detail">${escapeHtml(item.detail)}</p>${key === 'api' ? `<p class="detail">Porta atual: ${escapeHtml(item.port)}</p>` : ''}${key === 'discord' ? `<p class="detail">Bot: ${escapeHtml(data.bot.tag)} · memória: ${data.bot.memoryMb} MB</p>` : ''}</article>`).join('')}</div>
+  byId('content').innerHTML = `<div class="grid two">${Object.entries(data.services).map(([key, item]) => `<article class="card"><h2>${escapeHtml(serviceName(key))}</h2>${serviceBadge(key, item)}<p class="detail">${escapeHtml(item.detail)}</p>${key === 'discord' ? `<p class="detail">Bot: ${escapeHtml(data.bot.tag)} · memória: ${data.bot.memoryMb} MB</p>` : ''}</article>`).join('')}</div>
     <div class="section-head"><h2>Recursos locais</h2></div><div class="grid two"><article class="card"><h3>Wallpapers</h3>${badge(data.assets.wallpaper.exists ? 'Arquivo pronto' : 'Arquivo ausente', data.assets.wallpaper.exists ? 'ok' : 'warn')}<p class="detail">Próximo arquivo: dia ${data.assets.wallpaper.nextDay}</p></article><article class="card"><h3>Armazéns</h3>${badge(data.assets.stock.ctzFiles && data.assets.stock.boostersFiles ? 'Arquivos encontrados' : 'Arquivos ausentes', data.assets.stock.ctzFiles && data.assets.stock.boostersFiles ? 'ok' : 'warn')}<p class="detail">CTZ #${data.assets.stock.ctzItem}: ${data.assets.stock.ctzFiles} arquivo(s) · Boosters #${data.assets.stock.boostersItem}: ${data.assets.stock.boostersFiles} arquivo(s)</p></article></div>`;
 }
 
@@ -136,7 +176,7 @@ function renderStore() {
     <form id="storefront-form" class="card storefront-form"><div><label for="storefront-channel">Canal da loja</label><select id="storefront-channel" required><option value="">Escolha um canal de texto</option>${(state.config?.availableChannels ?? []).filter(channel => channel.type === 'text').map(channel => `<option value="${escapeHtml(channel.id)}" ${currentStoreChannel === channel.id ? 'selected' : ''}>#${escapeHtml(channel.name)}</option>`).join('')}</select></div><button class="primary" type="submit">Publicar / atualizar vitrine</button></form>
     <div class="section-head"><div><h2>Produtos</h2><p class="detail">Crie, edite, pause ou remova produtos. A vitrine e os comandos atualizam junto com o catálogo.</p></div><button id="add-product" class="primary">＋ Novo produto</button></div>
     <div class="grid two store-products">${data.products.map(product => `<article class="card product-editor">
-      <img class="product-preview" src="${escapeHtml(product.image || '')}" alt="Imagem de ${escapeHtml(product.name)}" ${product.image ? '' : 'hidden'}>
+      ${product.image ? `<img class="product-preview" loading="lazy" decoding="async" src="${escapeHtml(product.image)}" alt="Imagem de ${escapeHtml(product.name)}">` : ''}
       <div class="product-top"><div><p class="eyebrow">${product.active ? 'PRODUTO ATIVO' : 'PRODUTO PAUSADO'}</p><h2>${escapeHtml(product.name)}</h2></div>${badge(product.stock === null ? 'Estoque ilimitado' : `${product.stock} em estoque`, product.active ? 'ok' : 'warn')}</div>
       <div class="table-actions product-actions"><button class="tiny toggle-product ${product.active ? '' : 'success'}" data-value="${escapeHtml(product.value)}" data-active="${product.active}">${product.active ? 'Pausar venda' : 'Reativar venda'}</button><button class="tiny danger delete-product" data-value="${escapeHtml(product.value)}">Remover</button><span class="detail">ID: ${escapeHtml(product.value)}</span></div>
       <form class="product-form" data-value="${escapeHtml(product.value)}">
@@ -273,30 +313,51 @@ function render() {
   if (!state.data) return;
   byId('page-title').textContent = pageTitles[state.page];
   byId('server-name').textContent = `${state.data.server.name} · ${state.data.server.members} membros`;
-  byId('connection-label').textContent = state.data.bot.ready ? 'Bot conectado' : 'Bot desconectado';
+  const connectionLabel = byId('connection-label');
+  connectionLabel.textContent = state.data.bot.ready ? 'Bot conectado' : 'Bot desconectado';
+  connectionLabel.parentElement.classList.toggle('offline', !state.data.bot.ready);
   byId('footer-port').textContent = state.data.services.api.port ? `API local: porta ${state.data.services.api.port}.` : '';
   byId('last-updated').textContent = `Atualizado ${new Date(state.data.generatedAt).toLocaleTimeString('pt-BR')}`;
-  document.querySelectorAll('.nav-item').forEach(button => button.classList.toggle('active', button.dataset.page === state.page));
+  document.querySelectorAll('.nav-item').forEach(button => {
+    const active = button.dataset.page === state.page;
+    button.classList.toggle('active', active);
+    if (active) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+  const moreToggle = byId('mobile-more-toggle');
+  const moreActive = !mobilePages.has(state.page);
+  moreToggle.classList.toggle('active', moreActive);
+  if (moreActive) moreToggle.setAttribute('aria-current', 'page');
+  else moreToggle.removeAttribute('aria-current');
+  if (resourceRoutes[state.page]) {
+    renderBotResources(state.page, state.resources, { request, refresh, notice, escapeHtml });
+    return;
+  }
   ({ overview: renderOverview, services: renderServices, automations: renderAutomations, channels: renderChannels,
     config: renderConfig, store: renderStore, payments: renderPayments })[state.page](state.data);
 }
 
-async function refresh() {
-  const data = await request('/api/painel/status');
-  state.data = data;
-  if (state.page === 'payments') {
+async function loadPageData(page) {
+  if (resourceRoutes[page]) return { resources: await request(resourceRoutes[page]) };
+  if (page === 'payments') {
     const [paymentData, mercadoPago] = await Promise.all([
       request('/api/painel/payments'), request('/api/painel/payments/mercado-pago')
     ]);
-    state.methods = paymentData.methods; state.mercadoPago = mercadoPago;
+    return { methods: paymentData.methods, mercadoPago };
   }
-  if (state.page === 'store') {
+  if (page === 'store') {
     const [commerce, roles, config] = await Promise.all([request('/api/painel/commerce'), request('/api/painel/roles'), request('/api/painel/config')]);
-    state.commerce = commerce;
-    state.roles = roles.roles;
-    state.config = config;
+    return { commerce, roles: roles.roles, config };
   }
-  if (state.page === 'config') state.config = await request('/api/painel/config');
+  if (page === 'config') return { config: await request('/api/painel/config') };
+  return {};
+}
+
+async function refresh() {
+  const page = state.page;
+  const [data, pageData] = await Promise.all([request('/api/painel/status'), loadPageData(page)]);
+  if (state.page !== page) return;
+  Object.assign(state, pageData, { data });
   showApp();
   render();
 }
@@ -331,23 +392,49 @@ function updateMethodFields() {
   byId('payment-url').required = !pix;
 }
 
+let navigationId = 0;
 document.querySelectorAll('.nav-item').forEach(button => button.addEventListener('click', async () => {
-  state.page = button.dataset.page;
+  closeMobileMore();
+  const page = button.dataset.page;
+  const id = ++navigationId;
   try {
-    if (state.page === 'payments') {
-      const [data, mercadoPago] = await Promise.all([request('/api/painel/payments'), request('/api/painel/payments/mercado-pago')]);
-      state.methods = data.methods; state.mercadoPago = mercadoPago;
-    }
-    if (state.page === 'store') {
-      const [commerce, roles, config] = await Promise.all([request('/api/painel/commerce'), request('/api/painel/roles'), request('/api/painel/config')]);
-      state.commerce = commerce; state.roles = roles.roles; state.config = config;
-    }
-    if (state.page === 'config') state.config = await request('/api/painel/config');
+    const pageData = await loadPageData(page);
+    if (id !== navigationId) return;
+    Object.assign(state, pageData, { page });
     render();
-  }
-  catch (error) { notice(error.message, true); }
+  } catch (error) { if (id === navigationId) notice(error.message, true); }
 }));
-byId('refresh').addEventListener('click', async () => { try { await refresh(); notice('Dados atualizados.'); } catch (error) { notice(error.message, true); } });
+byId('mobile-more-toggle').addEventListener('click', event => {
+  const toggle = event.currentTarget;
+  const menu = byId('mobile-more');
+  const expanded = toggle.getAttribute('aria-expanded') === 'true';
+  menu.hidden = expanded;
+  toggle.setAttribute('aria-expanded', String(!expanded));
+  if (!expanded) byId('mobile-more-close').focus();
+});
+byId('mobile-more-close').addEventListener('click', () => {
+  closeMobileMore();
+  byId('mobile-more-toggle').focus();
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !byId('mobile-more').hidden) {
+    closeMobileMore();
+    byId('mobile-more-toggle').focus();
+  }
+});
+document.addEventListener('click', event => {
+  if (!byId('mobile-more').hidden
+      && !byId('mobile-more').contains(event.target)
+      && !byId('mobile-more-toggle').contains(event.target)) closeMobileMore();
+});
+byId('refresh').addEventListener('click', async event => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  button.textContent = 'Atualizando…';
+  try { await refresh(); notice('Dados atualizados.'); }
+  catch (error) { notice(error.message, true); }
+  finally { button.textContent = 'Atualizar'; button.disabled = false; }
+});
 byId('method-type').addEventListener('change', updateMethodFields);
 byId('close-dialog').addEventListener('click', () => byId('method-dialog').close());
 byId('cancel-dialog').addEventListener('click', () => byId('method-dialog').close());
@@ -368,7 +455,7 @@ byId('product-form').addEventListener('submit', async event => {
   try {
     state.commerce = await request('/api/painel/commerce/products', { method: 'POST', body: JSON.stringify(payload) });
     byId('product-dialog').close(); byId('product-form').reset(); renderStore(); notice('Produto criado e sincronizado com a loja.');
-  } catch (error) { byId('product-error').textContent = error.message; }
+  } catch (error) { byId('product-error').textContent = error.message; notice(error.message, true); }
   finally { button.disabled = false; }
 });
 byId('coupon-form').addEventListener('submit', async event => {
@@ -383,7 +470,7 @@ byId('coupon-form').addEventListener('submit', async event => {
   try {
     state.commerce = await request('/api/painel/commerce/coupons', { method: 'POST', body: JSON.stringify(payload) });
     byId('coupon-dialog').close(); byId('coupon-form').reset(); renderStore(); notice('Cupom cadastrado.');
-  } catch (error) { byId('coupon-error').textContent = error.message; }
+  } catch (error) { byId('coupon-error').textContent = error.message; notice(error.message, true); }
   finally { button.disabled = false; }
 });
 
@@ -393,10 +480,13 @@ byId('login-form').addEventListener('submit', async event => {
   const button = event.currentTarget.querySelector('button[type="submit"]');
   button.disabled = true;
   try { await request('/api/painel/login', { method: 'POST', body: JSON.stringify({ password }) }); byId('password').value = ''; await refresh(); }
-  catch (error) { showLogin(error.message); }
+  catch (error) { showLogin(error.message); notice(error.message, true); }
   finally { button.disabled = false; }
 });
-byId('logout').addEventListener('click', async () => { try { await request('/api/painel/logout', { method: 'POST', body: '{}' }); } finally { showLogin(); } });
+byId('logout').addEventListener('click', async () => {
+  try { await request('/api/painel/logout', { method: 'POST', body: '{}' }); showLogin(); notice('Sessão encerrada.'); }
+  catch (error) { notice(error.message, true); }
+});
 
 byId('method-form').addEventListener('submit', async event => {
   event.preventDefault();
@@ -414,7 +504,7 @@ byId('method-form').addEventListener('submit', async event => {
     state.page = 'payments';
     await refresh();
     notice(methodId ? 'Método editado.' : 'Método cadastrado.');
-  } catch (error) { byId('method-error').textContent = error.message; }
+  } catch (error) { byId('method-error').textContent = error.message; notice(error.message, true); }
   finally { button.disabled = false; }
 });
 

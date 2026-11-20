@@ -1,3 +1,5 @@
+import { ANNOUNCEMENT_TEMPLATES } from '../config/announcementTemplates.js';
+import { getSettings, updateSettings } from '../repositories/settingsRepository.js';
 ﻿import { client } from '../client.js';
 import { EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { GUILD_ID } from '../config/constants.js';
@@ -279,4 +281,48 @@ export function verificarEnviosPendentesAoLigar() {
 
 export function removerAnuncioParceriaAntigo() {
     console.log('[automation] Anúncio antigo de parceria removido.');
+}
+export function getAnnouncementTemplates() {
+    const settings = getSettings();
+    return Object.entries(ANNOUNCEMENT_TEMPLATES).map(([id, template]) => ({ id, ...template, ...(settings.messageOverrides?.[id] || {}) }));
+}
+export function updateAnnouncementTemplate(id, values) {
+    if (!Object.hasOwn(ANNOUNCEMENT_TEMPLATES, id)) throw Object.assign(new Error('Aviso não encontrado.'), { status: 404 });
+    const { title, text, imageFile = '', enabled = true } = values || {};
+    if (typeof title !== 'string' || !title.trim() || title.length > 256 || typeof text !== 'string' || !text.trim() || text.length > 4096 || typeof imageFile !== 'string' || /[\\/]/.test(imageFile) || typeof enabled !== 'boolean') throw Object.assign(new Error('Dados do aviso inválidos.'), { status: 400 });
+    const settings = getSettings();
+    updateSettings({ messageOverrides: { ...settings.messageOverrides, [id]: { title, text, imageFile, enabled } } });
+}
+export async function publishAutomationMessage(id) {
+    const template = getAnnouncementTemplates().find(item => item.id === id);
+    if (!template?.enabled) return false;
+    const settings = getSettings();
+    const guild = client.guilds.cache.get(GUILD_ID);
+    const channel = await guild?.channels.fetch(settings.channels[template.channelKey]);
+    if (!channel?.isTextBased()) throw Object.assign(new Error('Configure o canal deste aviso.'), { status: 400 });
+    const reference = settings.messageReferences?.[id];
+    const existing = reference?.channelId === channel.id ? await channel.messages.fetch(reference.messageId).catch(() => null) : null;
+    const embed = new EmbedBuilder().setColor(0xff0000).setTitle(template.title).setDescription(template.text);
+    const payload = { embeds: [embed], allowedMentions: { parse: [] }, files: [] };
+    if (template.imageFile) {
+        const image = path.join(process.cwd(), 'assets', template.imageFile);
+        if (!fs.existsSync(image)) throw Object.assign(new Error('Imagem não encontrada em assets.'), { status: 400 });
+        payload.files.push(new AttachmentBuilder(image));
+        embed.setImage('attachment://' + template.imageFile);
+    }
+    const message = existing?.author.id === client.user.id ? await existing.edit(payload) : await channel.send(payload);
+    updateSettings({ messageReferences: { ...getSettings().messageReferences, [id]: { channelId: channel.id, messageId: message.id } } });
+    return true;
+}
+export async function disableAutomationMessage(id) {
+    const template = getAnnouncementTemplates().find(item => item.id === id);
+    if (!template) return false;
+    const reference = getSettings().messageReferences?.[id];
+    if (reference) {
+        const channel = await client.guilds.cache.get(GUILD_ID)?.channels.fetch(reference.channelId);
+        const message = await channel?.messages.fetch(reference.messageId).catch(() => null);
+        if (message?.author.id === client.user.id) await message.delete();
+    }
+    updateAnnouncementTemplate(id, { ...template, enabled: false });
+    return true;
 }

@@ -2,18 +2,15 @@ import { ChannelType, PermissionFlagsBits, SlashCommandBuilder } from 'discord.j
 import { AUTOMATION_CHOICES, CHANNEL_CHOICES } from '../features/administration.js';
 import { COMMERCE_AUTOMATION_LABELS, getCommerceProducts } from '../repositories/commerceRepository.js';
 
-export function getSlashCommands() {
+export function getSlashCommands(extraCommands = []) {
     const PRODUCTS = getCommerceProducts({ includeInactive: false }) || [];
-    return [
+    const commands = [
         new SlashCommandBuilder()
             .setName('ajuda')
             .setDescription('Mostra os comandos e recursos do bot.'),
         new SlashCommandBuilder()
             .setName('ping')
             .setDescription('Mostra a latência do bot.'),
-        new SlashCommandBuilder()
-            .setName('painel')
-            .setDescription('Abre o painel administrativo privado do bot.'),
         new SlashCommandBuilder()
             .setName('gerartoken')
             .setDescription('Gera um token único de acesso de 30 dias vinculado ao HWID.'),
@@ -66,6 +63,7 @@ export function getSlashCommands() {
         new SlashCommandBuilder()
             .setName('pagamentos')
             .setDescription('Abre o painel interativo para gerenciar formas de pagamento.')
+            .addSubcommand(sub => sub.setName('gerenciar').setDescription('Gerencia métodos de pagamento.'))
             .addSubcommand(sub => sub.setName('teste').setDescription('Gera Pix real de R$ 0,10 e entrega o cargo de teste após confirmação.')),
         new SlashCommandBuilder()
             .setName('set')
@@ -175,4 +173,10 @@ export function getSlashCommands() {
                 .addBooleanOption(option => option.setName('ativa').setDescription('Enviar logs para um canal?').setRequired(true))
                 .addChannelOption(option => option.setName('canal').setDescription('Canal privado de logs.').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)))
     ].map(command => command.toJSON());
+    const names = new Set(commands.map(item => item.name));
+    for (const command of extraCommands) {
+        const schema = command.data?.toJSON ? command.data.toJSON() : command.data;
+        if (schema?.name && !names.has(schema.name)) { commands.push(schema); names.add(schema.name); }
+    }
+    return commands;
 }

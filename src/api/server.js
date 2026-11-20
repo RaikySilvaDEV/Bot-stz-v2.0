@@ -2,32 +2,65 @@ import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { handleDashboardRoute } from './dashboardRoutes.js';
 import { handleMercadoPagoWebhook } from './mercadoPagoWebhook.js';
+import { iniciarTunelPublico, getPublicBaseUrl } from './publicTunnel.js';
+import { handleForGoatsWebRoute } from './forgoatsWebRoutes.js';
+import { handleAppAuthRoute } from './authRoutes.js';
 import {
     atualizarAnuncioFiveM, criarAnuncioFiveM, listarAnunciosFiveM, removerAnuncioFiveM
 } from '../features/fivemAnnouncements.js';
 
 const API_PORT = Number.parseInt(process.env.API_PORT ?? '3001', 10);
-const API_HOST = process.env.API_HOST?.trim() || '127.0.0.1';
+// Em produção ou acesso de outras redes/dispositivos, use API_HOST=0.0.0.0 no .env
+const API_HOST = process.env.API_HOST?.trim() || '0.0.0.0';
 const API_KEY = process.env.API_KEY ?? '';
 const MAX_BODY_BYTES = 10 * 1024;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
-const RATE_LIMIT_MAX_REQUESTS = 120;
+const RATE_LIMIT_MAX_REQUESTS = 180;
 const requestsByAddress = new Map();
 let servidor;
 let portaAtiva = API_PORT;
 
 export function getApiStatus() {
-    return { running: Boolean(servidor?.listening), port: portaAtiva };
+    return {
+        running: Boolean(servidor?.listening),
+        port: portaAtiva,
+        host: API_HOST,
+        publicUrl: getPublicBaseUrl(portaAtiva)
+    };
+}
+
+function aplicarCors(req, res) {
+    const origin = req.headers.origin;
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.setHeader('Access-Control-Max-Age', '86400');
 }
 
 function responder(res, status, dados) {
-    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.writeHead(status, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store'
+    });
     res.end(JSON.stringify(dados));
+}
+
+function obterEnderecoCliente(req) {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (typeof forwarded === 'string' && forwarded.trim()) {
+        return forwarded.split(',')[0].trim();
+    }
+    const realIp = req.headers['x-real-ip'];
+    if (typeof realIp === 'string' && realIp.trim()) {
+        return realIp.trim();
+    }
+    return req.socket.remoteAddress ?? 'unknown';
 }
 
 function limiteAtingido(req) {
     const now = Date.now();
-    const address = req.socket.remoteAddress ?? 'unknown';
+    const address = obterEnderecoCliente(req);
     const current = requestsByAddress.get(address);
     if (!current || now - current.startedAt >= RATE_LIMIT_WINDOW_MS) {
         requestsByAddress.set(address, { startedAt: now, count: 1 });
@@ -60,12 +93,26 @@ async function lerJson(req) {
 }
 
 async function lidarComRequisicao(req, res) {
+    aplicarCors(req, res);
+
+    if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+    }
+
     if (limiteAtingido(req)) return responder(res, 429, { erro: 'Limite de requisições excedido. Aguarde um minuto.' });
-    const url = new URL(req.url, 'http://127.0.0.1');
+
+    const hostHeader = req.headers.host || `127.0.0.1:${portaAtiva}`;
+    const url = new URL(req.url, `http://${hostHeader}`);
+
     if (await handleMercadoPagoWebhook(req, res, url, lerJson)) return;
     if (await handleDashboardRoute(req, res, url, lerJson)) return;
+    if (await handleAppAuthRoute(req, res, url, lerJson)) return;
+    if (await handleForGoatsWebRoute(req, res, url, lerJson)) return;
     if (!API_KEY) return responder(res, 503, { erro: 'A API FiveM está desativada porque API_KEY não foi configurada.' });
     if (!chaveValida(req)) return responder(res, 401, { erro: 'Chave inválida. Envie Authorization: Bearer SUA_API_KEY.' });
+
     const rota = url.pathname.match(/^\/api\/anuncios\/fivem\/?(?:([^/]+)\/?)?$/);
     if (!rota) return responder(res, 404, { erro: 'Rota não encontrada.' });
     const id = rota[1] ?? null;
@@ -129,7 +176,11 @@ export function iniciarApiAnunciosFiveM() {
     instancia.on('listening', () => {
         const address = instancia.address();
         portaAtiva = typeof address === 'object' && address ? address.port : API_PORT;
-        console.log(`[api] API e painel web disponíveis em http://${API_HOST}:${portaAtiva} (rota /painel)`);
+        console.log(`[api] API e painel web disponíveis em http://${API_HOST}:${portaAtiva} (rota /forgoats e /painel)`);
+        if (process.env.AUTO_TUNNEL === 'true') {
+            void iniciarTunelPublico(portaAtiva);
+        }
     });
     instancia.listen(API_PORT, API_HOST);
+    return instancia;
 }

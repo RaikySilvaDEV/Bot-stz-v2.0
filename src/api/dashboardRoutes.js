@@ -1,3 +1,4 @@
+import { handleBotResourcesRoute } from './botResources.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,8 +35,10 @@ import {
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const AUTOMATIONS = new Set(['announcements', 'wallpapers', 'stock', 'aiResponses']);
 const PAGE_FILES = {
+    '/painel/resources.js': ['resources.js', 'text/javascript; charset=utf-8'],
     '/painel/app.js': ['app.js', 'text/javascript; charset=utf-8'],
-    '/painel/style.css': ['style.css', 'text/css; charset=utf-8']
+    '/painel/style.css': ['style.css', 'text/css; charset=utf-8'],
+    '/painel/community-for-goats-logo.jpg': ['community-for-goats-logo.jpg', 'image/jpeg']
 };
 
 function responder(res, status, data) {
@@ -201,6 +204,7 @@ export async function handleDashboardRoute(req, res, url, readJson) {
     }
 
     try {
+        if (await handleBotResourcesRoute(req, res, url, readJson)) return true;
         if (pathname === '/api/painel/status' && req.method === 'GET') {
             return responder(res, 200, await getDashboardDetails()), true;
         }
@@ -220,7 +224,7 @@ export async function handleDashboardRoute(req, res, url, readJson) {
             const guild = client.guilds.cache.get(GUILD_ID);
             if (!guild) return responder(res, 503, { erro: 'Servidor Discord indisponível.' }), true;
             const settings = getSettings();
-            const channels = await guild.channels.fetch().catch(() => guild.channels.cache);
+            const channels = guild.channels.cache;
             return responder(res, 200, {
                 timezone: settings.timezone, announcementHours: settings.announcementHours,
                 everyoneMentions: settings.everyoneMentions, channels: settings.channels,
@@ -269,7 +273,6 @@ export async function handleDashboardRoute(req, res, url, readJson) {
         if (pathname === '/api/painel/roles' && req.method === 'GET') {
             const guild = client.guilds.cache.get(GUILD_ID);
             if (!guild) return responder(res, 503, { erro: 'Servidor Discord indisponível.' }), true;
-            await guild.roles.fetch().catch(() => null);
             const bot = guild.members.me;
             const roles = guild.roles.cache.filter(role => role.id !== guild.id && !role.managed && bot?.roles.highest.comparePositionTo(role) > 0)
                 .map(role => ({ id: role.id, name: role.name })).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));

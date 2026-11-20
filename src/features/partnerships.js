@@ -65,7 +65,7 @@ function makePanel(selectedId = null, page = 0) {
             new ButtonBuilder().setCustomId(`partner:page:${Math.min(pageCount - 1, page + 1)}`).setLabel('Próxima página').setStyle(ButtonStyle.Secondary).setDisabled(page >= pageCount - 1)
         ));
     }
-    return { content, components, flags: MessageFlags.Ephemeral };
+    return { content, components };
 }
 
 function makeModal(partner = null) {
@@ -120,7 +120,7 @@ export async function tratarInteracaoParcerias(interaction) {
 
     if (command) {
         if (interaction.commandName === 'cadastrar-parceria') await interaction.showModal(makeModal());
-        else await interaction.reply(makePanel());
+        else await interaction.reply({ ...makePanel(), flags: MessageFlags.Ephemeral });
         return true;
     }
     if (interaction.isStringSelectMenu()) {
@@ -173,46 +173,81 @@ export async function tratarInteracaoParcerias(interaction) {
         await interaction.reply({ content: `❌ ${error.message}`, flags: MessageFlags.Ephemeral });
         return true;
     }
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const channel = await getPartnersChannel(interaction.guild);
     if (isNew) {
         let partner;
         try {
             partner = addPartner({ ...data, createdBy: interaction.user.id, messageId: null });
         } catch (error) {
-            await interaction.reply({ content: `❌ ${error.message}`, flags: MessageFlags.Ephemeral });
+            await interaction.editReply({ content: `❌ ${error.message}` });
             return true;
         }
         try {
             const message = await channel.send({ embeds: [partnerEmbed(partner)], allowedMentions: { parse: [] } });
             updatePartner(partner.id, { ...data, createdBy: partner.createdBy, messageId: message.id });
             await audit(interaction.guild, interaction.user.id, 'Parceria cadastrada', partner.name);
-            await interaction.reply({ content: `✅ **${partner.name}** foi cadastrada e publicada em ${channel}.`, flags: MessageFlags.Ephemeral });
         } catch (error) {
             removePartner(partner.id);
             throw error;
         }
+        await interaction.editReply({ content: `✅ **${partner.name}** foi cadastrada e publicada em ${channel}.` });
     } else {
         const partner = getPartners().find(item => item.id === id);
         if (!partner) {
-            await interaction.reply({ content: 'Essa parceria não está mais cadastrada. Abra `/parcerias` novamente.', flags: MessageFlags.Ephemeral });
+            await interaction.editReply({ content: 'Essa parceria não está mais cadastrada. Abra `/parcerias` novamente.' });
             return true;
         }
         const message = partner.messageId ? await channel.messages.fetch(partner.messageId).catch(() => null) : null;
         if (!message) throw new Error('Não encontrei a publicação original. Confira o canal e reabra `/parcerias`.');
         const duplicate = getPartners().some(item => item.id !== id && new URL(item.url).href === new URL(data.url).href);
         if (duplicate) {
-            await interaction.reply({ content: '❌ Essa URL já está cadastrada como parceria.', flags: MessageFlags.Ephemeral });
+            await interaction.editReply({ content: '❌ Essa URL já está cadastrada como parceria.' });
             return true;
         }
         const updated = { ...partner, ...data, updatedAt: new Date().toISOString() };
         await message.edit({ embeds: [partnerEmbed(updated)], allowedMentions: { parse: [] } });
         updatePartner(id, { ...data, createdBy: partner.createdBy, messageId: partner.messageId });
         await audit(interaction.guild, interaction.user.id, 'Parceria editada', partner.name);
-        await interaction.reply({ content: `✅ **${data.name}** foi atualizada em ${channel}.`, flags: MessageFlags.Ephemeral });
+        await interaction.editReply({ content: `✅ **${data.name}** foi atualizada em ${channel}.` });
     }
     return true;
 }
 
 export function getPartnershipCount() {
     return getPartners().length;
+}
+
+// Serviço compartilhado pelo Discord e pelo painel web.
+export async function savePartnership(guild, data, id = null) {
+    const name = String(data?.name || '').trim();
+    const description = String(data?.description || '').trim();
+    let url;
+    try { url = new URL(data?.url); } catch { throw Object.assign(new Error('Link inválido.'), { status: 400 }); }
+    if (!name || name.length > 80 || !description || description.length > 800 || url.protocol !== 'https:')
+        throw Object.assign(new Error('Informe nome, descrição e link HTTPS válidos.'), { status: 400 });
+    const channel = await getPartnersChannel(guild);
+    const existing = id ? getPartners().find(item => item.id === id) : null;
+    if (id && !existing) throw Object.assign(new Error('Parceria não encontrada.'), { status: 404 });
+    const values = { name, description, url: url.href };
+    if (existing) {
+        const message = await channel.messages.fetch(existing.messageId).catch(() => null);
+        const updated = { ...existing, ...values, updatedAt: new Date().toISOString() };
+        const sent = message ? await message.edit({ embeds: [partnerEmbed(updated)] }) : await channel.send({ embeds: [partnerEmbed(updated)] });
+        return updatePartner(id, { ...values, messageId: sent.id, channelId: channel.id });
+    }
+    const record = addPartner(values);
+    try {
+        const message = await channel.send({ embeds: [partnerEmbed(record)] });
+        return updatePartner(record.id, { ...record, messageId: message.id, channelId: channel.id });
+    } catch (error) { removePartner(record.id); throw error; }
+}
+export async function deletePartnership(guild, id) {
+    const record = getPartners().find(item => item.id === id);
+    if (!record) return false;
+    const channel = await guild.channels.fetch(record.channelId || getSettings().channels.partnerships);
+    const message = await channel?.messages.fetch(record.messageId).catch(() => null);
+    if (message) await message.delete();
+    removePartner(id);
+    return true;
 }
